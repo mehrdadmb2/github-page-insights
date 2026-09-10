@@ -1,11 +1,14 @@
 window.PAGE_INSIGHTS_CONFIG = {
-  workerUrl: "https://YOUR-WORKER.workers.dev",
-  siteId: "auto",
-  siteName: "Auto-detected site",
-  sampleRate: 1,
-  heartbeatMs: 15000,
-  trackOutboundLinks: true,
-  trackClicks: true,
-  trackScrollDepth: true,
-  privacyMode: "standard"
+  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  githubOwner: "mehrdadmb2",
+  githubRepo: "github-page-insights",
+  githubBranch: "main",
+
+  autoRefreshMs: 45000,
+  recentLimit: 25,
+  siteConcurrency: 3,
+  githubCacheMs: 120000,
+
+  defaultRangeDays: 7,
+  maxRecentDaysToScan: 3
 };
