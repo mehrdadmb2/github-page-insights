@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090d19">
+  <title>GitHub Page Insights</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div><div class="ambient ambient-c"></div>
+  <header class="topbar glass">
+    <div class="brand"><span class="brand-mark">✦</span><div><b>GitHub Page Insights</b><small>Modular web analytics</small></div></div>
+    <div class="actions"><button id="refreshBtn" class="icon-btn" title="Refresh">↻</button><button id="themeBtn" class="icon-btn" title="Toggle theme">◐</button></div>
+  </header>
+
+  <main class="shell">
+    <section class="hero glass">
+      <div><span class="eyebrow">LIVE TELEMETRY</span><h1>Every page. One command center.</h1><p>Dynamic visitor analytics collected by Cloudflare Worker, aggregated in D1, and archived back into GitHub by site and date.</p></div>
+      <div class="hero-orbit"><div class="orbit o1"></div><div class="orbit o2"></div><div class="core">PI</div></div>
+    </section>
+
+    <section id="overview" class="metrics-grid"></section>
+
+    <section class="workspace">
+      <aside class="sidebar glass"><div class="panel-title"><span>Sites</span><button id="allSites" class="mini-btn">All</button></div><div id="siteList" class="site-list"></div></aside>
+      <section class="main-panel">
+        <div class="section-head"><div><span class="eyebrow">SELECTED SITE</span><h2 id="siteTitle">Loading…</h2><p id="siteMeta">Fetching telemetry</p></div><select id="rangeSelect"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></div>
+        <div class="chart-card glass"><div class="chart-head"><span>Traffic</span><span id="chartCaption"></span></div><canvas id="trafficChart"></canvas></div>
+        <div class="two-col"><div class="glass detail-card"><div class="chart-head"><span>Device mix</span><span>Current period</span></div><div id="deviceMix" class="bars"></div></div><div class="glass detail-card"><div class="chart-head"><span>Top pages</span><span>Views</span></div><div id="topPages" class="rows"></div></div></div>
+        <div class="glass table-card"><div class="chart-head"><span>Recent visits</span><span id="visitCount"></span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Page</th><th>Location</th><th>Device</th><th>Duration</th><th>Referrer</th></tr></thead><tbody id="visitRows"></tbody></table></div></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
