@@ -1,67 +1,51 @@
 # GitHub Page Insights
 
-A modular, dynamic analytics platform for GitHub Pages powered by **Cloudflare Workers + D1 + GitHub**. A public collector accepts telemetry from any GitHub Page, stores structured data in D1 for real-time queries, and archives each event immediately into this repository using a dynamic `siteId` path.
+A modular analytics and visitor-intelligence stack for GitHub Pages, powered by Cloudflare Workers + D1 and optional GitHub archival.
 
-> **Current architecture:** request-driven, no Cron and no Scheduled Trigger required for collection or archival.
+## What it does
 
-## Repository
+- Dynamic site discovery: `siteId` is supplied by each connected Page.
+- Real-time event ingestion through `POST /collect`.
+- Raw client IP capture from the Cloudflare request path.
+- Geo/network context exposed by Cloudflare when available.
+- Browser, operating-system and device classification.
+- Session and visitor identifiers.
+- Duration, scroll depth, clicks and outbound clicks.
+- D1-backed statistics APIs.
+- Immediate GitHub JSON archive per event.
+- Dashboard with live system health, project explorer, traffic charts, client mix, geo, IP intelligence and recent events.
+- No Cron is required for collection or GitHub archival.
 
-- GitHub repository: `mehrdadmb2/github-page-insights`
-- Worker: `https://github-page-insights-worker.game-developer-mb.workers.dev`
-- Dashboard: the `docs/` directory can be published as GitHub Pages.
-
-## What this project does
-
-The collector is intentionally generic. A page only needs a Worker URL and a `siteId`.
-
-```text
-Any GitHub Page
-      |
-      | POST /collect
-      v
-Cloudflare Worker
-      |
-      +--> D1: real-time analytics
-      |
-      +--> GitHub Contents API: immediate archive
-      |
-      v
-Dashboard / API consumers
-```
-
-No site whitelist is required. A new `siteId` automatically creates its own archive directory under `data/sites/<siteId>/events/...`.
-
-## Important security model
-
-The collector endpoint is public by design, so **anyone who knows `/collect` can send telemetry**. `siteId` is an identifier, not a secret. The Worker sanitizes `siteId` and prevents path traversal / hidden Git metadata paths. The GitHub token and admin key are server-side Worker secrets and must never be embedded in `docs/`.
-
-This configuration stores the raw client IP in D1 and in the GitHub archive because this project is explicitly configured for raw-IP analytics. Do not deploy this configuration without considering your privacy notice, retention policy, local law, and repository visibility. For a public repository, raw IP addresses are sensitive visitor data.
-
-## Required Cloudflare setup
-
-### 1. Worker
-
-Create a Worker named `github-page-insights-worker` and paste `worker/src/index.js` into the Cloudflare editor.
-
-No Cron Trigger is required.
-
-### 2. D1
-
-Create a D1 database named `github-page-insights` and attach it to the Worker with binding name:
+## Architecture
 
 ```text
-DB
+GitHub Page
+  -> docs/analytics.js
+  -> POST /collect
+  -> Cloudflare Worker
+       -> D1
+       -> GitHub Contents API
+  -> Dashboard APIs
 ```
 
-The SQL schema must contain at least these tables:
+The Worker does not need a fixed list of sites. A new valid `siteId` automatically creates the logical site record and the GitHub archive path.
 
-- `sites`
-- `events`
-- `visitor_sessions`
+## Worker URL
 
-For an existing deployment that was created before raw IP support, run `d1-migration-raw-ip.sql` once to add `events.ip` and its indexes.
+```text
+https://github-page-insights-worker.game-developer-mb.workers.dev
+```
 
-### 3. Worker Variables
+## Required Cloudflare bindings
+
+D1 binding:
+
+```text
+Variable: DB
+Database: github-page-insights
+```
+
+Variables:
 
 ```text
 GITHUB_OWNER=mehrdadmb2
@@ -69,141 +53,90 @@ GITHUB_REPO=github-page-insights
 GITHUB_BRANCH=main
 ```
 
-### 4. Worker Secrets
+Secrets:
 
 ```text
-GITHUB_TOKEN=<Fine-grained GitHub PAT>
-ADMIN_KEY=<long random secret>
+GITHUB_TOKEN=<Fine-grained GitHub PAT with Contents: Read and write>
+ADMIN_KEY=<optional private admin key>
 ```
 
-`GITHUB_TOKEN` must be allowed to write repository contents. GitHub documents that the Contents write permission is sufficient for Create or Update File Contents. citehttps://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28
+Never expose `GITHUB_TOKEN` or `ADMIN_KEY` to a public GitHub Page.
 
-## D1 schema
+## Connect any GitHub Page
 
-For a fresh database, use the schema below.
+Add the following before the closing `</body>` or in the page `<head>`:
 
-```sql
-CREATE TABLE IF NOT EXISTS sites (
-  site_id TEXT PRIMARY KEY,
-  site_name TEXT NOT NULL,
-  first_seen TEXT NOT NULL,
-  last_seen TEXT NOT NULL,
-  views INTEGER NOT NULL DEFAULT 0,
-  unique_visitors INTEGER NOT NULL DEFAULT 0,
-  sessions INTEGER NOT NULL DEFAULT 0
-);
+```html
+<meta name="page-insights-site-id" content="my-project">
+<meta name="page-insights-site-name" content="My Project">
+<script src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"></script>
+```
 
-CREATE TABLE IF NOT EXISTS events (
-  id TEXT PRIMARY KEY,
-  received_at TEXT NOT NULL,
-  event_type TEXT NOT NULL,
-  site_id TEXT NOT NULL,
-  site_name TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  visitor_id TEXT NOT NULL,
-  page_url TEXT,
-  path TEXT,
-  title TEXT,
-  referrer TEXT,
-  referrer_host TEXT,
-  language TEXT,
-  timezone TEXT,
-  country TEXT,
-  region TEXT,
-  city TEXT,
-  continent TEXT,
-  colo TEXT,
-  asn INTEGER,
-  ip TEXT,
-  ip_hash TEXT,
-  user_agent TEXT,
-  browser TEXT,
-  os TEXT,
-  device TEXT,
-  screen_width INTEGER,
-  screen_height INTEGER,
-  viewport_width INTEGER,
-  viewport_height INTEGER,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  max_scroll INTEGER NOT NULL DEFAULT 0,
-  clicks INTEGER NOT NULL DEFAULT 0,
-  outbound_clicks INTEGER NOT NULL DEFAULT 0,
-  exported INTEGER NOT NULL DEFAULT 0
-);
+For this repository's own GitHub Pages dashboard, the collector is intentionally not installed; it is the control plane.
 
-CREATE TABLE IF NOT EXISTS visitor_sessions (
-  site_id TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  visitor_id TEXT NOT NULL,
-  first_seen TEXT NOT NULL,
-  last_seen TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL DEFAULT 0,
-  views INTEGER NOT NULL DEFAULT 0,
-  max_scroll INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(site_id, session_id)
-);
+## `siteId` rules
 
-CREATE INDEX IF NOT EXISTS idx_events_site_received ON events(site_id, received_at);
-CREATE INDEX IF NOT EXISTS idx_events_ip ON events(ip);
-CREATE INDEX IF NOT EXISTS idx_events_site_ip ON events(site_id, ip);
-CREATE INDEX IF NOT EXISTS idx_events_visitor ON events(site_id, visitor_id);
-CREATE INDEX IF NOT EXISTS idx_events_session ON events(site_id, session_id);
+Use a stable identifier such as:
+
+```text
+my-portfolio
+imdb-showcase
+dual-ping-monitor
+project-2026
+```
+
+The Worker normalizes the identifier and rejects unsafe path patterns. `siteName` is display metadata and does not control filesystem traversal.
 
 ## Collector API
 
 ### `POST /collect`
 
-The collector accepts JSON. The endpoint is public.
+The endpoint is intentionally public so any Page can send telemetry. The Worker validates and normalizes the payload.
 
-Example:
+Minimal payload:
 
-```js
-fetch("https://github-page-insights-worker.game-developer-mb.workers.dev/collect", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    siteId: "my-project",
-    siteName: "My Project",
-    type: "pageview",
-    sessionId: crypto.randomUUID(),
-    visitorId: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
-    pageUrl: location.href,
-    path: location.pathname + location.search,
-    title: document.title,
-    referrer: document.referrer,
-    language: navigator.language,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    screen: {
-      width: screen.width,
-      height: screen.height,
-      devicePixelRatio: devicePixelRatio,
-      colorDepth: screen.colorDepth
-    },
-    viewport: {
-      width: innerWidth,
-      height: innerHeight
-    },
-    connection: navigator.connection ? {
-      type: navigator.connection.effectiveType,
-      downlink: navigator.connection.downlink,
-      rtt: navigator.connection.rtt,
-      saveData: navigator.connection.saveData
-    } : null,
-    durationMs: 0,
-    maxScroll: 0,
-    clicks: 0,
-    outboundClicks: 0,
-    metadata: { source: "my-project" }
-  })
-});
+```json
+{
+  "siteId": "my-project",
+  "siteName": "My Project",
+  "eventType": "pageview",
+  "sessionId": "session-123",
+  "visitorId": "visitor-123",
+  "pageUrl": "https://example.github.io/project/",
+  "path": "/project/",
+  "title": "My Project"
+}
 ```
 
-Successful ingestion and archive return HTTP `201` with both `stored.d1=true` and `stored.github=true`.
+Recommended payload:
 
-### Event types
+```json
+{
+  "siteId": "my-project",
+  "siteName": "My Project",
+  "eventType": "pageview",
+  "eventId": "client-generated-id",
+  "sessionId": "session-123",
+  "visitorId": "visitor-123",
+  "timestamp": "2026-09-10T12:00:00.000Z",
+  "pageUrl": "https://example.github.io/project/",
+  "path": "/project/",
+  "title": "My Project",
+  "referrer": "https://github.com/",
+  "language": "en-US",
+  "timezone": "Asia/Baku",
+  "screen": {"width":1920,"height":1080,"devicePixelRatio":1},
+  "viewport": {"width":1440,"height":860},
+  "connection": {"type":"4g","downlink":20,"rtt":40,"saveData":false},
+  "durationMs": 125000,
+  "maxScroll": 86,
+  "clicks": 7,
+  "outboundClicks": 2,
+  "metadata": {"source":"custom-client"}
+}
+```
 
-Accepted types:
+Accepted event types:
 
 ```text
 pageview
@@ -217,401 +150,180 @@ error
 custom
 ```
 
-Unknown values are normalized to `custom`.
+Successful ingestion returns HTTP `201` and confirms both D1 and GitHub archival.
 
-## Server-derived telemetry
+## Data captured
 
-The Worker derives data from the request in addition to the JSON body.
+From the browser/client payload:
 
-From Cloudflare request metadata where available:
+- URL, path, page title
+- referrer
+- language and timezone
+- screen and viewport dimensions
+- device/browser hints
+- network connection hints
+- visitor/session IDs
+- duration and engagement counters
 
-```text
-country
-region
-city
-continent
-colo
-ASN
-ASN organization
-latitude
-longitude
-postal code
-TLS version
-client TCP RTT
-client QUIC RTT
-```
+From Cloudflare's request context when available:
 
-Cloudflare exposes incoming-request metadata through `request.cf`. The current Worker also reads the visitor IP from `CF-Connecting-IP` (with fallbacks) and stores the **raw IP** in `events.ip`. Cloudflare documents `CF-Connecting-IP` as the client IP header in the Worker request path. citehttps://developers.cloudflare.com/fundamentals/reference/http-headers/
+- raw client IP
+- country
+- region
+- city
+- continent
+- colo
+- ASN
+- ASN organization
+- latitude/longitude
+- postal code
+- TLS version
+- client RTT values
 
-The Worker also parses the User-Agent for:
+The raw IP is stored in D1 and archived in GitHub because this deployment explicitly enables raw-IP analytics. Make your own privacy/legal assessment before collecting IP addresses from real visitors.
 
-```text
-browser
-OS
-device type
-```
+## Statistics APIs
 
-## Automatic site discovery
-
-There is no hard-coded site list.
-
-The following payload creates a new site automatically:
-
-```json
-{
-  "siteId": "new-project",
-  "siteName": "New Project",
-  "type": "pageview"
-}
-```
-
-The archive path becomes:
-
-```text
-data/sites/new-project/events/YYYY/MM/DD/<event>.json
-```
-
-Changing `siteName` does not move historical data because `siteId` is the stable key.
-
-## GitHub archive format
-
-Every event is archived as its own JSON file. Example:
-
-```text
-data/
-└── sites/
-    └── my-project/
-        └── events/
-            └── 2026/
-                └── 09/
-                    └── 10/
-                        └── 2026-09-10T12-00-00-123Z_<eventId>.json
-```
-
-A file contains:
-
-```json
-{
-  "schemaVersion": "5.0",
-  "service": "github-page-insights-worker",
-  "workerVersion": "5.0.0",
-  "requestId": "...",
-  "archivedAt": "...",
-  "site": {
-    "id": "my-project",
-    "name": "My Project"
-  },
-  "storage": {
-    "d1": true,
-    "github": true
-  },
-  "event": {
-    "ip": "203.0.113.10",
-    "country": "US",
-    "city": "Example City",
-    "browser": "Chrome",
-    "os": "Windows",
-    "device": "Desktop"
-  }
-}
-```
-
-## Public statistics API
-
-### List discovered sites
+### List sites
 
 ```http
 GET /api/sites
 ```
 
-Response contains `sites[]` with:
+Returns dynamic sites known to D1.
 
-```text
-siteId
-siteName
-firstSeen
-lastSeen
-views
-uniqueVisitors
-sessions
-```
-
-### All-sites overview
+### Global overview
 
 ```http
 GET /api/overview?days=7
-GET /api/overview?days=30
-GET /api/overview?days=90
 GET /api/overview?days=all
 ```
 
-Response includes:
-
-```text
-totalViews
-uniqueVisitors
-sessions
-avgDurationMs
-avgScroll
-today
-daily
-countries
-browsers
-operatingSystems
-devices
-ips
-eventTypes
-pages
-```
-
-### Site-level statistics
+### Site analytics
 
 ```http
-GET /api/site/my-project?days=7
+GET /api/site/<siteId>?days=7
+GET /api/site/<siteId>?days=all
 ```
 
-Response includes:
-
-```text
-siteId
-siteName
-views
-uniqueVisitors
-sessions
-avgDurationMs
-avgScroll
-today
-last7Days
-series
-devices
-topPages
-recentVisits
-countries
-browsers
-operatingSystems
-ips
-eventTypes
-```
+Returns traffic, devices, countries, browsers, operating systems, top pages, IP rankings, event types and recent visits.
 
 ### Compatibility endpoint
 
-For older clients, this endpoint remains available:
-
 ```http
 GET /api/stats?site=my-project&days=7
-GET /api/stats?days=7
 ```
 
-It routes to the same site or overview data model.
+Without `site`, it behaves like overview.
 
-## Protected admin API
+## System health
 
-`GET /api/admin/events` requires the Worker secret `ADMIN_KEY`.
+```http
+GET /health
+GET /api/system-health
+GET /api/health
+```
 
-Example request:
+`/api/system-health` checks:
+
+- Worker availability
+- D1 connectivity
+- presence of required tables
+- presence of critical event columns including `ip`
+- database record counts
+- most recent telemetry event
+- GitHub repository authentication
+- GitHub API rate-limit headers
+- required Worker configuration
+
+The public dashboard calls this endpoint and never receives the GitHub secret itself.
+
+## Admin endpoint
 
 ```http
 GET /api/admin/events?site=my-project&limit=100
+```
+
+Send the private admin key using:
+
+```http
 X-Admin-Key: <ADMIN_KEY>
 ```
 
-Do not call this endpoint from public client-side JavaScript because that would expose the secret.
+Do not put this header or key in public frontend source code.
 
-## Drop-in analytics collector
+## GitHub archive
 
-The included `docs/analytics.js` is designed to be copied to any GitHub Page. Add:
-
-```html
-<meta name="page-insights-site-id" content="my-project">
-<meta name="page-insights-site-name" content="My Project">
-<script src="https://mehrdadmb2.github.io/github-page-insights/analytics.js"></script>
-```
-
-The collector sends:
+Each event is archived under a dynamic path:
 
 ```text
-pageview
-heartbeat
-visibility
-pageleave
-session ID
-visitor ID
-page URL
-path
-title
-referrer
-language
-timezone
-screen
-viewport
-connection hints
-duration
-scroll depth
-click count
-outbound click count
+data/sites/<siteId>/events/YYYY/MM/DD/<timestamp>_<eventId>.json
 ```
-
-No GitHub token is required on the tracked page.
-
-## Dashboard
-
-Publish `docs/` as GitHub Pages. The dashboard discovers the directories under `data/sites/` and queries the Worker for live aggregate statistics.
-
-The current interface provides:
-
-- dynamic project explorer
-- dark / light theme
-- neon glass UI
-- animated startup screen
-- animated ambient background
-- traffic chart
-- device distribution
-- countries
-- top pages
-- browser distribution
-- operating system distribution
-- raw IP ranking
-- recent event table with IP
-- event type distribution
-- responsive mobile layout
-- automatic refresh
-
-## Using the data elsewhere
-
-### Read live statistics
-
-```js
-const response = await fetch(
-  "https://github-page-insights-worker.game-developer-mb.workers.dev/api/site/my-project?days=30"
-);
-const data = await response.json();
-console.log(data.views);
-console.log(data.uniqueVisitors);
-console.log(data.ips);
-```
-
-### Read archived data from GitHub
-
-Because each event is a normal repository file, external tools can read it through GitHub's Contents API or raw GitHub URLs. For automated processing, prefer the structured D1/Worker API for aggregate queries and GitHub for historical archive/export workflows.
-
-## Building an AI integration
-
-An AI coding agent can integrate another repository by following this sequence:
-
-1. Add the supplied `analytics.js` loader to the target GitHub Page.
-2. Give the site a stable, lowercase `siteId`.
-3. Set a human-friendly `siteName`.
-4. Use the Worker URL as the collector base URL.
-5. Do not copy `GITHUB_TOKEN` or `ADMIN_KEY` into the target repository.
-6. Use `/api/site/<siteId>` for site statistics.
-7. Use `/api/overview` for the entire analytics portfolio.
-8. Use `/api/sites` for the dynamically discovered site list.
-9. Use GitHub archive paths under `data/sites/<siteId>/events/` for historical event files.
-
-### Example configuration for an AI-generated repository
-
-```js
-window.PAGE_INSIGHTS_CONFIG = {
-  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
-  siteId: "my-project",
-  siteName: "My Project"
-};
-```
-
-Or with HTML metadata:
-
-```html
-<meta name="page-insights-site-id" content="my-project">
-<meta name="page-insights-site-name" content="My Project">
-```
-
-## Failure behavior
-
-The Worker returns explicit diagnostics:
-
-- `D1_STORE_FAILED` means D1 did not accept the event.
-- `GITHUB_ARCHIVE_FAILED` means the event is already in D1 but GitHub archive failed.
-- `INVALID_JSON`, `INVALID_PAYLOAD`, `SITE_ID_REQUIRED` and similar values indicate a client request problem.
-- `401 UNAUTHORIZED` from `/api/admin/events` means the admin secret is missing or wrong.
-
-Every request receives a `requestId` for log correlation.
-
-## Observability
-
-Use Cloudflare Worker Logs / Observability to search for:
-
-```text
-REQUEST_START
-D1_STORE_FAILED
-GITHUB_ARCHIVE_FAILED
-COLLECT_SUCCESS
-UNHANDLED_ERROR
-```
-
-The Worker logs event ID, site ID, request ID, timing and GitHub archive path without logging the raw IP directly to application logs.
-
-## GitHub API behavior
-
-The Worker creates one archive file per event using GitHub's Create or Update File Contents endpoint. GitHub documents `201 Created` for a new file, and `Contents: write` for fine-grained token access. citehttps://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28
-
-Individual event files reduce the need to update one large daily JSON file and avoid a SHA-read/update cycle for every visitor. This can still create many GitHub commits on a high-traffic site; for high volume, D1 should be considered the primary real-time store and GitHub should be treated as the archive layer.
-
-## Limits and production notes
-
-- The public collector is not proof of visitor authenticity. An attacker can submit forged telemetry.
-- `siteId` must be treated as a public identifier.
-- Raw IP storage should be covered by an explicit privacy / retention policy.
-- Very high traffic can create a large number of GitHub commits.
-- For high-traffic deployments, use rate limiting / WAF controls and consider batching archive operations.
-- GitHub API authentication tokens must remain Worker secrets.
-- Never put `ADMIN_KEY` in a GitHub Page.
-
-## Files
-
-```text
-docs/
-├── index.html
-├── style.css
-├── app.js
-├── analytics.js
-├── config.js
-└── logo.svg
-
-worker/
-├── package.json
-├── wrangler.toml
-└── src/
-    └── index.js
-
-d1-migration-raw-ip.sql
-README.md
-LICENSE
-```
-
-## License
-
-MIT License. See `LICENSE`.
-
-## System health diagnostics
-
-The dashboard calls `GET /api/system-health` when it opens and periodically afterwards. The endpoint is read-only and does not write telemetry. It checks:
-
-- Worker reachability and diagnostic latency.
-- D1 connectivity and the presence of the expected `sites`, `events`, and `visitor_sessions` tables.
-- Required `events` columns, including `ip`, session/visitor fields, client fields, and engagement fields.
-- Current D1 counts for sites, events, and sessions.
-- The timestamp/type/site of the most recent telemetry event.
-- Authenticated access from the Worker to the configured GitHub repository.
-- Configured branch and GitHub REST API rate-limit headers returned by the authenticated request.
-- Telemetry freshness (`ok`, `stale`, or `idle`).
-
-The endpoint never returns the GitHub token or `ADMIN_KEY`, and the dashboard does not need either secret. The UI presents the result as the **System Health Center**. GitHub documents the rate-limit headers exposed by authenticated REST requests, and recommends avoiding unnecessary concurrent requests. citeturn958999search0turn958999search11
 
 Example:
 
 ```text
-GET https://YOUR-WORKER-DOMAIN/api/system-health
+data/sites/imdb-showcase/events/2026/09/10/2026-09-10T12-00-00-123Z_abc123.json
 ```
 
-The response includes `overall` plus a `checks` object for `worker`, `database`, `github`, `telemetry`, and `configuration`.
+Because each event is a new file, the collector does not need to update a shared daily JSON document during the request.
 
+## Dashboard architecture
+
+The dashboard in `docs/` reads its live statistics from the Worker APIs. It does not require a GitHub token in browser JavaScript.
+
+Files:
+
+```text
+docs/index.html
+ docs/style.css
+ docs/app.js
+ docs/analytics.js
+ docs/config.js
+ docs/logo.svg
+```
+
+## Recommended integration for another AI or coding agent
+
+When asking another AI to add analytics to another repository, provide this README and ask it to:
+
+1. Pick a stable `siteId` for that repository.
+2. Add the two Page Insights meta tags.
+3. Load `analytics.js` from the deployed dashboard/analytics location.
+4. Never expose `GITHUB_TOKEN` or `ADMIN_KEY` in the target repository.
+5. Use `/api/site/<siteId>` for project analytics.
+6. Use `/api/overview` for aggregate analytics.
+7. Use `/collect` only for event ingestion.
+8. Treat the GitHub `data/sites/<siteId>/` tree as historical archive, not as a real-time database.
+
+## Error handling
+
+Common collector errors:
+
+```text
+400  SITE_ID_REQUIRED
+400  INVALID_JSON
+400  INVALID_PAYLOAD
+413  PAYLOAD_TOO_LARGE
+500  D1_STORE_FAILED
+502  GITHUB_ARCHIVE_FAILED
+401  UNAUTHORIZED   (admin endpoint)
+404  NOT_FOUND
+405  METHOD_NOT_ALLOWED
+```
+
+Every server-side request has a `requestId` in Worker logs and, for important failures, in the JSON response.
+
+## Privacy and compliance
+
+Raw IP collection is enabled in this deployment. IP addresses can be personal data depending on jurisdiction and context. Add an appropriate privacy notice, retention policy and access control for your audience before production use. Consider shortening retention or hashing IPs when raw IP is not genuinely needed.
+
+## GitHub Pages deployment
+
+Set the repository's GitHub Pages source to the `/docs` folder on the desired branch.
+
+The dashboard requires internet access to reach the Worker.
+
+## License
+
+MIT. See `LICENSE`.

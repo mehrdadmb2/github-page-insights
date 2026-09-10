@@ -3,13 +3,11 @@ window.PAGE_INSIGHTS_CONFIG = {
   githubOwner: "mehrdadmb2",
   githubRepo: "github-page-insights",
   githubBranch: "main",
-
-  autoRefreshMs: 30000,
-  healthRefreshMs: 120000,
-  recentLimit: 30,
-  siteConcurrency: 3,
-  githubCacheMs: 90000,
-  maxRecentDaysToScan: 3,
   defaultRangeDays: 7,
+  autoRefreshMs: 45000,
+  healthRefreshMs: 120000,
+  recentLimit: 40,
+  maxRecentSites: 30,
+  maxRecentDaysToScan: 3,
   showRawIp: true
 };
