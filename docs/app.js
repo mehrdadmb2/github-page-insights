@@ -4,14 +4,14 @@
   const WORKER = String(C.workerUrl || "").replace(/\/+$/, "");
   const GITHUB = `https://api.github.com/repos/${encodeURIComponent(C.githubOwner || "")}/${encodeURIComponent(C.githubRepo || "")}`;
   const BRANCH = C.githubBranch || "main";
-  const state = { sites: [], filtered: [], selected: null, range: Number(C.defaultRangeDays || 7), stats: null, timer: null, loading: false, cache: new Map() };
+  const state = { sites: [], filtered: [], selected: null, range: Number(C.defaultRangeDays || 7), stats: null, timer: null, loading: false, lastHealthAt: 0, healthLoading: false, cache: new Map() };
   const $ = (s) => document.querySelector(s);
-  const el = { boot: $("#boot"), bootPct: $("#bootPct"), bootLine: $("#bootLine"), metrics: $("#metrics"), siteList: $("#siteList"), siteCount: $("#siteCount"), siteBadge: $("#siteBadge"), inventoryState: $("#inventoryState"), siteSearch: $("#siteSearch"), range: $("#rangeSelect"), siteTitle: $("#siteTitle"), siteMeta: $("#siteMeta"), siteAvatar: $("#siteAvatar"), rangeBadge: $("#rangeBadge"), dataBadge: $("#dataBadge"), traffic: $("#trafficChart"), trafficEmpty: $("#trafficEmpty"), trafficSummary: $("#trafficSummary"), deviceDonut: $("#deviceDonut"), deviceCenter: $("#deviceCenter"), deviceLegend: $("#deviceLegend"), countryList: $("#countryList"), pageList: $("#pageList"), browserList: $("#browserList"), osList: $("#osList"), ipList: $("#ipList"), recentRows: $("#recentRows"), recentStatus: $("#recentStatus"), eventCloud: $("#eventCloud"), status: $("#statusText"), lastSync: $("#lastSync"), toast: $("#toastStack"), heroEdge: $("#heroEdge"), heroIngest: $("#heroIngest"), heroProjects: $("#heroProjects") };
+  const el = { boot: $("#boot"), bootPct: $("#bootPct"), bootLine: $("#bootLine"), metrics: $("#metrics"), siteList: $("#siteList"), siteCount: $("#siteCount"), siteBadge: $("#siteBadge"), inventoryState: $("#inventoryState"), siteSearch: $("#siteSearch"), range: $("#rangeSelect"), siteTitle: $("#siteTitle"), siteMeta: $("#siteMeta"), siteAvatar: $("#siteAvatar"), rangeBadge: $("#rangeBadge"), dataBadge: $("#dataBadge"), traffic: $("#trafficChart"), trafficEmpty: $("#trafficEmpty"), trafficSummary: $("#trafficSummary"), deviceDonut: $("#deviceDonut"), deviceCenter: $("#deviceCenter"), deviceLegend: $("#deviceLegend"), countryList: $("#countryList"), pageList: $("#pageList"), browserList: $("#browserList"), osList: $("#osList"), ipList: $("#ipList"), recentRows: $("#recentRows"), recentStatus: $("#recentStatus"), eventCloud: $("#eventCloud"), status: $("#statusText"), lastSync: $("#lastSync"), toast: $("#toastStack"), heroEdge: $("#heroEdge"), heroIngest: $("#heroIngest"), heroProjects: $("#heroProjects"), healthCenter: $("#healthCenter"), healthOverall: $("#healthOverall"), healthWorkerStatus: $("#healthWorkerStatus"), healthWorkerMeta: $("#healthWorkerMeta"), healthDbStatus: $("#healthDbStatus"), healthDbMeta: $("#healthDbMeta"), healthGithubStatus: $("#healthGithubStatus"), healthGithubMeta: $("#healthGithubMeta"), healthTelemetryStatus: $("#healthTelemetryStatus"), healthTelemetryMeta: $("#healthTelemetryMeta"), healthEventsCount: $("#healthEventsCount"), healthSitesCount: $("#healthSitesCount"), healthSessionsCount: $("#healthSessionsCount"), healthRate: $("#healthRate"), healthLastEvent: $("#healthLastEvent"), healthLatency: $("#healthLatency") };
   const palette = ["#5df7ff", "#8b6cff", "#ff63d8", "#c6ff5a", "#ffad5c", "#58a6ff"];
   init();
 
-  async function init() { bind(); boot(); applyTheme(localStorage.getItem("gpi-theme") || "dark"); try { await discoverSites(); await refresh(); state.timer = setInterval(() => { if (!document.hidden) refresh(true); }, Math.max(20000, Number(C.autoRefreshMs || 30000))); } catch (e) { fail(e, "Unable to initialize analytics."); } }
-  function bind() { $("#refreshBtn").onclick = () => refresh(false); $("#themeBtn").onclick = () => applyTheme(document.documentElement.classList.contains("light") ? "dark" : "light"); $("#focusBtn").onclick = () => $("#explorer")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#allSitesBtn").onclick = () => selectSite(null); el.range.onchange = () => { state.range = Number(el.range.value); refresh(false); }; el.siteSearch.oninput = renderRail; document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); }); addEventListener("resize", debounce(() => { if (state.stats) drawTraffic(state.stats.daily || []); }, 160)); }
+  async function init() { bind(); boot(); applyTheme(localStorage.getItem("gpi-theme") || "dark"); try { await runHealthCheck(); await discoverSites(); await refresh(); state.timer = setInterval(() => { if (!document.hidden) { refresh(true); const healthEvery = Math.max(60000, Number(C.healthRefreshMs || 120000)); if (Date.now() - state.lastHealthAt >= healthEvery) runHealthCheck(); } }, Math.max(20000, Number(C.autoRefreshMs || 30000))); } catch (e) { fail(e, "Unable to initialize analytics."); } }
+  function bind() { $("#refreshBtn").onclick = () => refresh(false); $("#healthRefreshBtn").onclick = () => runHealthCheck(); $("#themeBtn").onclick = () => applyTheme(document.documentElement.classList.contains("light") ? "dark" : "light"); $("#focusBtn").onclick = () => $("#explorer")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#allSitesBtn").onclick = () => selectSite(null); el.range.onchange = () => { state.range = Number(el.range.value); refresh(false); }; el.siteSearch.oninput = renderRail; document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); }); addEventListener("resize", debounce(() => { if (state.stats) drawTraffic(state.stats.daily || []); }, 160)); }
   function boot() { let n = 0; const t = setInterval(() => { n = Math.min(100, n + Math.floor(7 + Math.random() * 15)); el.bootPct.textContent = `${n}%`; el.bootLine.style.width = `${n}%`; if (n >= 100) { clearInterval(t); setTimeout(() => el.boot.classList.add("hide"), 360); } }, 90); }
   function applyTheme(theme) { document.documentElement.classList.toggle("light", theme === "light"); localStorage.setItem("gpi-theme", theme); if (state.stats) drawTraffic(state.stats.daily || []); }
 
@@ -26,6 +26,45 @@
     if (state.selected && !state.sites.some(s => s.siteId === state.selected)) state.selected = null;
     el.siteCount.textContent = `${state.sites.length} site${state.sites.length === 1 ? "" : "s"}`; el.siteBadge.textContent = "AUTO"; el.inventoryState.textContent = state.sites.length ? "READY" : "NO SITES"; renderRail(); el.heroProjects.textContent = String(state.sites.length);
   }
+
+  async function runHealthCheck(){
+    if(!el.healthCenter || state.healthLoading) return;
+    state.healthLoading = true;
+    el.healthCenter.classList.add("health-loading");
+    setHealthCard(el.healthWorkerStatus, el.healthWorkerMeta, "CHECKING", "Endpoint reachability", "warning", el.healthWorkerStatus?.closest(".health-card"));
+    setHealthCard(el.healthDbStatus, el.healthDbMeta, "CHECKING", "Schema & connectivity", "warning", el.healthDbStatus?.closest(".health-card"));
+    setHealthCard(el.healthGithubStatus, el.healthGithubMeta, "CHECKING", "Repository authentication", "warning", el.healthGithubStatus?.closest(".health-card"));
+    setHealthCard(el.healthTelemetryStatus, el.healthTelemetryMeta, "CHECKING", "Telemetry freshness", "warning", el.healthTelemetryStatus?.closest(".health-card"));
+    try {
+      const d=await workerJson("/api/system-health");
+      const c=d.checks||{};
+      const overall=d.overall||"error";
+      el.healthOverall.className=`health-overall ${overall}`;
+      el.healthOverall.querySelector("b").textContent=overall.toUpperCase();
+      setHealthCard(el.healthWorkerStatus, el.healthWorkerMeta, labelStatus(c.worker?.status), `${c.worker?.latencyMs||0} ms`, c.worker?.status||"error", el.healthWorkerStatus?.closest(".health-card"));
+      setHealthCard(el.healthDbStatus, el.healthDbMeta, labelStatus(c.database?.status), `${c.database?.counts?.events||0} events · ${c.database?.counts?.sites||0} sites`, c.database?.status||"error", el.healthDbStatus?.closest(".health-card"));
+      setHealthCard(el.healthGithubStatus, el.healthGithubMeta, labelStatus(c.github?.status), c.github?.rateLimit ? `${c.github.rateLimit.remaining}/${c.github.rateLimit.limit} API calls left` : (c.github?.message||"Unavailable"), c.github?.status||"error", el.healthGithubStatus?.closest(".health-card"));
+      setHealthCard(el.healthTelemetryStatus, el.healthTelemetryMeta, labelStatus(c.telemetry?.status), c.telemetry?.latestEventAt ? `${formatAge(c.telemetry.ageSeconds)} · ${c.telemetry.latestSiteId||"unknown site"}` : "No events yet", c.telemetry?.status||"warning", el.healthTelemetryStatus?.closest(".health-card"));
+      el.healthEventsCount.textContent=formatNumber(c.database?.counts?.events||0);
+      el.healthSitesCount.textContent=formatNumber(c.database?.counts?.sites||0);
+      el.healthSessionsCount.textContent=formatNumber(c.database?.counts?.sessions||0);
+      el.healthRate.textContent=c.github?.rateLimit ? `${formatCompact(c.github.rateLimit.remaining)} / ${formatCompact(c.github.rateLimit.limit)}` : "—";
+      el.healthLastEvent.textContent=c.telemetry?.latestEventAt ? new Date(c.telemetry.latestEventAt).toLocaleString([], {month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit"}) : "No events";
+      el.healthLatency.textContent=`${formatNumber(d.elapsedMs||0)} ms`;
+      el.heroEdge.textContent= c.worker?.status==="ok" ? "ONLINE" : "DEGRADED";
+    } catch(e){
+      el.healthOverall.className="health-overall error"; el.healthOverall.querySelector("b").textContent="OFFLINE";
+      setHealthCard(el.healthWorkerStatus, el.healthWorkerMeta, "OFFLINE", "Worker endpoint unreachable", "error", el.healthWorkerStatus?.closest(".health-card"));
+      setHealthCard(el.healthDbStatus, el.healthDbMeta, "UNKNOWN", "Worker diagnostic unavailable", "error", el.healthDbStatus?.closest(".health-card"));
+      setHealthCard(el.healthGithubStatus, el.healthGithubMeta, "UNKNOWN", "Worker diagnostic unavailable", "error", el.healthGithubStatus?.closest(".health-card"));
+      setHealthCard(el.healthTelemetryStatus, el.healthTelemetryMeta, "UNKNOWN", "Worker diagnostic unavailable", "error", el.healthTelemetryStatus?.closest(".health-card"));
+      el.healthLatency.textContent="—";
+      console.error(e);
+    } finally { state.lastHealthAt = Date.now(); state.healthLoading = false; el.healthCenter.classList.remove("health-loading"); }
+  }
+  function setHealthCard(statusEl, metaEl, title, meta, status, card){ if(statusEl) statusEl.textContent=title; if(metaEl) metaEl.textContent=meta; if(card){ if(status) card.dataset.status=status; else card.removeAttribute("data-status"); }}
+  function labelStatus(s){ const m={ok:"Operational",warning:"Warning",error:"Error",stale:"Stale",idle:"Waiting"}; return m[s]||String(s||"Unknown"); }
+  function formatAge(sec){ const n=Number(sec||0); if(n<60) return `${n}s ago`; if(n<3600) return `${Math.floor(n/60)}m ago`; if(n<86400) return `${Math.floor(n/3600)}h ago`; return `${Math.floor(n/86400)}d ago`; }
 
   async function refresh(silent) {
     if (state.loading) return; state.loading = true; el.status.textContent = "SYNC"; el.dataBadge.textContent = "SYNCING";

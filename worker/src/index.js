@@ -19,6 +19,7 @@ export default {
     try {
       if (url.pathname === "/" && request.method === "GET") return cors(json({ service: SERVICE, version: VERSION, status: "online", architecture: "request-driven-no-cron", endpoints: { collect: "POST /collect", sites: "GET /api/sites", overview: "GET /api/overview?days=7", site: "GET /api/site/<siteId>?days=7", stats: "GET /api/stats?site=<siteId>&days=7", admin: "GET /api/admin/events" } }));
       if (url.pathname === "/health" && request.method === "GET") return health(request, env, requestId);
+      if ((url.pathname === "/api/system-health" || url.pathname === "/api/health") && request.method === "GET") return systemHealth(request, env, requestId);
       if (url.pathname === "/collect" && request.method === "POST") return collect(request, env, requestId, started);
       if (url.pathname === "/api/sites" && request.method === "GET") return listSites(request, env, requestId);
       if (url.pathname === "/api/overview" && request.method === "GET") return overview(request, env, requestId, url.searchParams.get("days"));
@@ -134,6 +135,187 @@ async function githubPut(env,path,obj) {
   const r=await fetchWithTimeout(url,{method:"PUT",headers:ghHeaders(env),body:JSON.stringify(body)},15000); const txt=await r.text();
   if(!r.ok) throw Error(`GITHUB_${r.status}:${txt.slice(0,1600)}`);
   let j={}; try{j=JSON.parse(txt)}catch{} return {status:r.status,commitSha:j?.commit?.sha || null,fileSha:j?.content?.sha || null};
+}
+
+async function systemHealth(request, env, requestId){
+  const started = Date.now();
+  const checks = {};
+
+  checks.worker = {
+    status: "ok",
+    message: "Worker endpoint is reachable.",
+    latencyMs: 0
+  };
+
+  const d1Start = Date.now();
+  try {
+    if (!env.DB) throw new Error("D1 binding 'DB' is not configured");
+
+    await env.DB.prepare("SELECT 1 AS ok").first();
+
+    const tables = await env.DB.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table'
+      AND name IN ('sites','events','visitor_sessions')
+      ORDER BY name
+    `).all();
+
+    const columns = await env.DB.prepare(`PRAGMA table_info(events)`).all();
+    const columnSet = new Set((columns.results || []).map(x => x.name));
+    const requiredColumns = [
+      "id","received_at","event_type","site_id","site_name",
+      "session_id","visitor_id","ip","browser","os","device",
+      "duration_ms","max_scroll","clicks","outbound_clicks"
+    ];
+    const missingColumns = requiredColumns.filter(x => !columnSet.has(x));
+    const tableSet = new Set((tables.results || []).map(x => x.name));
+    const missingTables = ["sites","events","visitor_sessions"].filter(x => !tableSet.has(x));
+
+    const counts = await env.DB.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM sites) AS sites,
+        (SELECT COUNT(*) FROM events) AS events,
+        (SELECT COUNT(*) FROM visitor_sessions) AS sessions
+    `).first();
+
+    const latest = await env.DB.prepare(`
+      SELECT received_at, site_id, event_type, ip
+      FROM events
+      ORDER BY rowid DESC
+      LIMIT 1
+    `).first();
+
+    checks.database = {
+      status: missingTables.length || missingColumns.length ? "error" : "ok",
+      message: missingTables.length || missingColumns.length
+        ? "D1 is reachable, but the analytics schema is incomplete."
+        : "D1 is reachable and the expected schema is present.",
+      latencyMs: Date.now() - d1Start,
+      tables: [...tableSet],
+      missingTables,
+      missingColumns,
+      counts: {
+        sites: Number(counts?.sites || 0),
+        events: Number(counts?.events || 0),
+        sessions: Number(counts?.sessions || 0)
+      },
+      latestEvent: latest ? {
+        receivedAt: latest.received_at,
+        siteId: latest.site_id,
+        eventType: latest.event_type,
+        hasIp: Boolean(latest.ip)
+      } : null
+    };
+  } catch (error) {
+    checks.database = {
+      status: "error",
+      message: "D1 health check failed.",
+      latencyMs: Date.now() - d1Start,
+      error: String(error?.message || error)
+    };
+  }
+
+  const githubStart = Date.now();
+  try {
+    const missing = [];
+    if (!env.GITHUB_TOKEN) missing.push("GITHUB_TOKEN");
+    if (!env.GITHUB_OWNER) missing.push("GITHUB_OWNER");
+    if (!env.GITHUB_REPO) missing.push("GITHUB_REPO");
+    if (!env.GITHUB_BRANCH) missing.push("GITHUB_BRANCH");
+    if (missing.length) throw new Error(`Missing configuration: ${missing.join(", ")}`);
+
+    const repoUrl = `${GH_API}/repos/${encodeURIComponent(env.GITHUB_OWNER)}/${encodeURIComponent(env.GITHUB_REPO)}`;
+    const repoResponse = await fetchWithTimeout(repoUrl,{method:"GET",headers:ghHeaders(env)},10000);
+
+    const rate = {
+      limit: Number(repoResponse.headers.get("x-ratelimit-limit") || 0),
+      remaining: Number(repoResponse.headers.get("x-ratelimit-remaining") || 0),
+      used: Number(repoResponse.headers.get("x-ratelimit-used") || 0),
+      resetEpoch: Number(repoResponse.headers.get("x-ratelimit-reset") || 0)
+    };
+
+    if (!repoResponse.ok) {
+      const body = await repoResponse.text();
+      throw new Error(`GitHub ${repoResponse.status}: ${body.slice(0,800)}`);
+    }
+
+    const repo = await repoResponse.json();
+
+    checks.github = {
+      status: "ok",
+      message: "Authenticated GitHub repository access is working.",
+      latencyMs: Date.now() - githubStart,
+      repository: repo.full_name || null,
+      defaultBranch: repo.default_branch || null,
+      configuredBranch: env.GITHUB_BRANCH,
+      rateLimit: {
+        ...rate,
+        resetAt: rate.resetEpoch ? new Date(rate.resetEpoch * 1000).toISOString() : null
+      }
+    };
+  } catch (error) {
+    checks.github = {
+      status: "error",
+      message: "GitHub repository/API check failed.",
+      latencyMs: Date.now() - githubStart,
+      tokenConfigured: Boolean(env.GITHUB_TOKEN),
+      ownerConfigured: Boolean(env.GITHUB_OWNER),
+      repoConfigured: Boolean(env.GITHUB_REPO),
+      branchConfigured: Boolean(env.GITHUB_BRANCH),
+      error: String(error?.message || error)
+    };
+  }
+
+  const latestAt = checks.database?.latestEvent?.receivedAt || null;
+  let telemetryStatus = "idle";
+  let ageSeconds = null;
+  if (latestAt) {
+    ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(latestAt).getTime()) / 1000));
+    telemetryStatus = ageSeconds <= 300 ? "ok" : "stale";
+  }
+  checks.telemetry = {
+    status: telemetryStatus,
+    message: telemetryStatus === "ok"
+      ? "Recent telemetry has been received."
+      : telemetryStatus === "stale"
+        ? "No event has been received in the last five minutes."
+        : "No telemetry events have been received yet.",
+    latestEventAt: latestAt,
+    latestSiteId: checks.database?.latestEvent?.siteId || null,
+    latestEventType: checks.database?.latestEvent?.eventType || null,
+    ageSeconds
+  };
+
+  const configurationOk = Boolean(
+    env.DB && env.GITHUB_TOKEN && env.GITHUB_OWNER && env.GITHUB_REPO && env.GITHUB_BRANCH
+  );
+  checks.configuration = {
+    status: configurationOk ? "ok" : "warning",
+    d1Binding: Boolean(env.DB),
+    githubToken: Boolean(env.GITHUB_TOKEN),
+    githubOwner: env.GITHUB_OWNER || null,
+    githubRepository: env.GITHUB_REPO || null,
+    githubBranch: env.GITHUB_BRANCH || null,
+    adminKeyConfigured: Boolean(env.ADMIN_KEY)
+  };
+
+  const statuses = Object.values(checks).map(x => x.status);
+  const overall = statuses.includes("error")
+    ? "error"
+    : statuses.includes("stale") || statuses.includes("warning")
+      ? "degraded"
+      : "healthy";
+
+  return cors(json({
+    ok: overall !== "error",
+    requestId,
+    service: SERVICE,
+    version: VERSION,
+    generatedAt: new Date().toISOString(),
+    overall,
+    elapsedMs: Date.now() - started,
+    checks
+  }));
 }
 
 async function listSites(request,env,requestId){

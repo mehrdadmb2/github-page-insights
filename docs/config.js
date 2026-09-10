@@ -5,6 +5,7 @@ window.PAGE_INSIGHTS_CONFIG = {
   githubBranch: "main",
 
   autoRefreshMs: 30000,
+  healthRefreshMs: 120000,
   recentLimit: 30,
   siteConcurrency: 3,
   githubCacheMs: 90000,

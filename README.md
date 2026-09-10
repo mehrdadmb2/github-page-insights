@@ -591,3 +591,27 @@ LICENSE
 ## License
 
 MIT License. See `LICENSE`.
+
+## System health diagnostics
+
+The dashboard calls `GET /api/system-health` when it opens and periodically afterwards. The endpoint is read-only and does not write telemetry. It checks:
+
+- Worker reachability and diagnostic latency.
+- D1 connectivity and the presence of the expected `sites`, `events`, and `visitor_sessions` tables.
+- Required `events` columns, including `ip`, session/visitor fields, client fields, and engagement fields.
+- Current D1 counts for sites, events, and sessions.
+- The timestamp/type/site of the most recent telemetry event.
+- Authenticated access from the Worker to the configured GitHub repository.
+- Configured branch and GitHub REST API rate-limit headers returned by the authenticated request.
+- Telemetry freshness (`ok`, `stale`, or `idle`).
+
+The endpoint never returns the GitHub token or `ADMIN_KEY`, and the dashboard does not need either secret. The UI presents the result as the **System Health Center**. GitHub documents the rate-limit headers exposed by authenticated REST requests, and recommends avoiding unnecessary concurrent requests. citeturn958999search0turn958999search11
+
+Example:
+
+```text
+GET https://YOUR-WORKER-DOMAIN/api/system-health
+```
+
+The response includes `overall` plus a `checks` object for `worker`, `database`, `github`, `telemetry`, and `configuration`.
+

@@ -68,6 +68,46 @@
 
       <section class="metrics" id="metrics"></section>
 
+      <section class="health-center glass reveal" id="healthCenter">
+        <div class="health-head">
+          <div>
+            <div class="kicker">SYSTEM HEALTH CENTER</div>
+            <h2>Platform diagnostics</h2>
+            <p>Live verification of the Worker, D1 database, GitHub repository connection, rate limits and incoming telemetry.</p>
+          </div>
+          <div class="health-actions">
+            <span class="health-overall idle" id="healthOverall"><i></i><b>CHECKING</b></span>
+            <button class="btn small" id="healthRefreshBtn">Run diagnostics</button>
+          </div>
+        </div>
+        <div class="health-grid" id="healthGrid">
+          <article class="health-card">
+            <div class="health-icon">◎</div>
+            <div><span>Worker</span><strong id="healthWorkerStatus">Checking…</strong><small id="healthWorkerMeta">Endpoint reachability</small></div>
+          </article>
+          <article class="health-card">
+            <div class="health-icon">◫</div>
+            <div><span>D1 Database</span><strong id="healthDbStatus">Checking…</strong><small id="healthDbMeta">Schema & connectivity</small></div>
+          </article>
+          <article class="health-card">
+            <div class="health-icon">◈</div>
+            <div><span>GitHub API</span><strong id="healthGithubStatus">Checking…</strong><small id="healthGithubMeta">Repository authentication</small></div>
+          </article>
+          <article class="health-card">
+            <div class="health-icon">◉</div>
+            <div><span>Telemetry</span><strong id="healthTelemetryStatus">Checking…</strong><small id="healthTelemetryMeta">Freshness of latest event</small></div>
+          </article>
+        </div>
+        <div class="health-details" id="healthDetails">
+          <div class="health-detail"><span>DB EVENTS</span><b id="healthEventsCount">—</b></div>
+          <div class="health-detail"><span>TRACKED SITES</span><b id="healthSitesCount">—</b></div>
+          <div class="health-detail"><span>SESSIONS</span><b id="healthSessionsCount">—</b></div>
+          <div class="health-detail"><span>GITHUB RATE</span><b id="healthRate">—</b></div>
+          <div class="health-detail"><span>LAST EVENT</span><b id="healthLastEvent">—</b></div>
+          <div class="health-detail"><span>DIAGNOSTIC LATENCY</span><b id="healthLatency">—</b></div>
+        </div>
+      </section>
+
       <section class="toolbar glass reveal" id="explorer">
         <div class="toolbar-left">
           <div class="kicker">PROJECT INVENTORY</div>
