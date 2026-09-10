@@ -1,7 +1,7 @@
 {
   "name": "github-page-insights-worker",
   "private": true,
+  "version": "5.0.0",
   "type": "module",
-  "scripts": {"dev":"wrangler dev","deploy":"wrangler deploy"},
-  "devDependencies": {"wrangler":"^4.35.0"}
+  "scripts": {"check": "node --check src/index.js"}
 }

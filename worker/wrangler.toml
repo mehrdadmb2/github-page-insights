@@ -1,20 +1,14 @@
 name = "github-page-insights-worker"
 main = "src/index.js"
-compatibility_date = "2026-08-21"
+compatibility_date = "2026-09-10"
+workers_dev = true
 
 [vars]
-GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
+GITHUB_OWNER = "mehrdadmb2"
 GITHUB_REPO = "github-page-insights"
 GITHUB_BRANCH = "main"
-ARCHIVE_ENABLED = "true"
-RAW_IP_MODE = "hash"
-MAX_BODY_BYTES = "30000"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "github-page-insights"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-migrations_dir = "migrations"
-
-[triggers]
-crons = ["*/5 * * * *"]
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

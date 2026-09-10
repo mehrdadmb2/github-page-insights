@@ -4,11 +4,11 @@ window.PAGE_INSIGHTS_CONFIG = {
   githubRepo: "github-page-insights",
   githubBranch: "main",
 
-  autoRefreshMs: 45000,
-  recentLimit: 25,
+  autoRefreshMs: 30000,
+  recentLimit: 30,
   siteConcurrency: 3,
-  githubCacheMs: 120000,
-
+  githubCacheMs: 90000,
+  maxRecentDaysToScan: 3,
   defaultRangeDays: 7,
-  maxRecentDaysToScan: 3
+  showRawIp: true
 };

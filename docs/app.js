@@ -1,278 +1,71 @@
 (() => {
   "use strict";
-
   const C = window.PAGE_INSIGHTS_CONFIG || {};
   const WORKER = String(C.workerUrl || "").replace(/\/+$/, "");
   const GITHUB = `https://api.github.com/repos/${encodeURIComponent(C.githubOwner || "")}/${encodeURIComponent(C.githubRepo || "")}`;
   const BRANCH = C.githubBranch || "main";
-  const state = {
-    sites: [], filteredSites: [], selected: null,
-    range: Number(C.defaultRangeDays || 7),
-    stats: null, timer: null, githubCache: new Map(), siteStats: new Map(),
-    loading: false
-  };
-
+  const state = { sites: [], filtered: [], selected: null, range: Number(C.defaultRangeDays || 7), stats: null, timer: null, loading: false, cache: new Map() };
   const $ = (s) => document.querySelector(s);
-  const $$ = (s) => [...document.querySelectorAll(s)];
-
-  const els = {
-    boot: $("#boot"), bootPct: $("#bootPct"), bootLine: $(".boot-line i"),
-    metrics: $("#metrics"), siteList: $("#siteList"), siteCount: $("#siteCount"),
-    inventoryState: $("#inventoryState"), siteSearch: $("#siteSearch"), range: $("#rangeSelect"),
-    siteTitle: $("#siteTitle"), siteMeta: $("#siteMeta"), siteAvatar: $("#siteAvatar"),
-    rangeBadge: $("#rangeBadge"), dataBadge: $("#dataBadge"), traffic: $("#trafficChart"),
-    trafficEmpty: $("#trafficEmpty"), trafficSummary: $("#trafficSummary"), deviceDonut: $("#deviceDonut"),
-    deviceCenter: $("#deviceCenter"), deviceLegend: $("#deviceLegend"), countryList: $("#countryList"),
-    pageList: $("#pageList"), browserList: $("#browserList"), osList: $("#osList"), recentRows: $("#recentRows"),
-    recentStatus: $("#recentStatus"), statusText: $("#statusText"), lastSync: $("#lastSync"), toastStack: $("#toastStack")
-  };
-
-  const colors = ["#7cf7ff", "#6e7bff", "#ba6bff", "#ef68ff", "#87ffbb"];
-
+  const el = { boot: $("#boot"), bootPct: $("#bootPct"), bootLine: $("#bootLine"), metrics: $("#metrics"), siteList: $("#siteList"), siteCount: $("#siteCount"), siteBadge: $("#siteBadge"), inventoryState: $("#inventoryState"), siteSearch: $("#siteSearch"), range: $("#rangeSelect"), siteTitle: $("#siteTitle"), siteMeta: $("#siteMeta"), siteAvatar: $("#siteAvatar"), rangeBadge: $("#rangeBadge"), dataBadge: $("#dataBadge"), traffic: $("#trafficChart"), trafficEmpty: $("#trafficEmpty"), trafficSummary: $("#trafficSummary"), deviceDonut: $("#deviceDonut"), deviceCenter: $("#deviceCenter"), deviceLegend: $("#deviceLegend"), countryList: $("#countryList"), pageList: $("#pageList"), browserList: $("#browserList"), osList: $("#osList"), ipList: $("#ipList"), recentRows: $("#recentRows"), recentStatus: $("#recentStatus"), eventCloud: $("#eventCloud"), status: $("#statusText"), lastSync: $("#lastSync"), toast: $("#toastStack"), heroEdge: $("#heroEdge"), heroIngest: $("#heroIngest"), heroProjects: $("#heroProjects") };
+  const palette = ["#5df7ff", "#8b6cff", "#ff63d8", "#c6ff5a", "#ffad5c", "#58a6ff"];
   init();
 
-  async function init() {
-    bind();
-    bootAnimation();
-    applyTheme(localStorage.getItem("gpi-theme") || "dark");
-    try {
-      await discoverSites();
-      await refresh();
-      state.timer = setInterval(() => { if (!document.hidden) refresh(true); }, Math.max(30000, Number(C.autoRefreshMs || 45000)));
-    } catch (error) {
-      handleError(error, "Unable to initialize analytics. Check Worker and repository configuration.");
-    }
-  }
-
-  function bind() {
-    $("#refreshBtn").addEventListener("click", () => refresh(false));
-    $("#themeBtn").addEventListener("click", () => applyTheme(document.documentElement.classList.contains("light") ? "dark" : "light"));
-    $("#focusSiteBtn").addEventListener("click", () => $("#explorer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
-    $("#allSitesBtn").addEventListener("click", () => selectSite(null));
-    els.range.addEventListener("change", () => { state.range = Number(els.range.value); refresh(false); });
-    els.siteSearch.addEventListener("input", renderSiteRail);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); });
-    window.addEventListener("resize", debounce(() => { if (state.stats) drawTraffic(state.stats.daily || []); }, 180));
-  }
-
-  function bootAnimation() {
-    let pct = 0;
-    const tick = setInterval(() => {
-      pct = Math.min(100, pct + Math.round(7 + Math.random() * 14));
-      els.bootPct.textContent = `${pct}%`;
-      els.bootLine.style.width = `${pct}%`;
-      if (pct >= 100) {
-        clearInterval(tick);
-        setTimeout(() => els.boot.classList.add("hide"), 280);
-      }
-    }, 95);
-  }
+  async function init() { bind(); boot(); applyTheme(localStorage.getItem("gpi-theme") || "dark"); try { await discoverSites(); await refresh(); state.timer = setInterval(() => { if (!document.hidden) refresh(true); }, Math.max(20000, Number(C.autoRefreshMs || 30000))); } catch (e) { fail(e, "Unable to initialize analytics."); } }
+  function bind() { $("#refreshBtn").onclick = () => refresh(false); $("#themeBtn").onclick = () => applyTheme(document.documentElement.classList.contains("light") ? "dark" : "light"); $("#focusBtn").onclick = () => $("#explorer")?.scrollIntoView({ behavior: "smooth", block: "start" }); $("#allSitesBtn").onclick = () => selectSite(null); el.range.onchange = () => { state.range = Number(el.range.value); refresh(false); }; el.siteSearch.oninput = renderRail; document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); }); addEventListener("resize", debounce(() => { if (state.stats) drawTraffic(state.stats.daily || []); }, 160)); }
+  function boot() { let n = 0; const t = setInterval(() => { n = Math.min(100, n + Math.floor(7 + Math.random() * 15)); el.bootPct.textContent = `${n}%`; el.bootLine.style.width = `${n}%`; if (n >= 100) { clearInterval(t); setTimeout(() => el.boot.classList.add("hide"), 360); } }, 90); }
+  function applyTheme(theme) { document.documentElement.classList.toggle("light", theme === "light"); localStorage.setItem("gpi-theme", theme); if (state.stats) drawTraffic(state.stats.daily || []); }
 
   async function discoverSites() {
-    els.inventoryState.textContent = "SCANNING";
-    const cached = readLocalCache("gpi-sites");
-    if (cached && (Date.now() - cached.at) < 5 * 60 * 1000) {
-      state.sites = cached.data;
-    } else {
-      const items = await githubJson(`${GITHUB}/contents/data/sites?ref=${encodeURIComponent(BRANCH)}`);
-      state.sites = (Array.isArray(items) ? items : [])
-        .filter(x => x.type === "dir")
-        .map(x => ({ siteId: x.name, siteName: prettifySiteName(x.name), htmlUrl: x.html_url }))
-        .sort((a,b) => a.siteName.localeCompare(b.siteName));
-      writeLocalCache("gpi-sites", state.sites);
+    el.inventoryState.textContent = "SCANNING REPOSITORY";
+    let items = null;
+    try { items = await githubJson(`${GITHUB}/contents/data/sites?ref=${encodeURIComponent(BRANCH)}`); } catch { items = null; }
+    if (!Array.isArray(items)) { state.sites = readCache("sites") || []; } else {
+      state.sites = items.filter(x => x.type === "dir").map(x => ({ siteId: x.name, siteName: prettify(x.name), htmlUrl: x.html_url })).sort((a,b) => a.siteName.localeCompare(b.siteName));
+      writeCache("sites", state.sites);
     }
-    els.siteCount.textContent = `${state.sites.length} site${state.sites.length === 1 ? "" : "s"}`;
     if (state.selected && !state.sites.some(s => s.siteId === state.selected)) state.selected = null;
-    renderSiteRail();
-    els.inventoryState.textContent = state.sites.length ? "READY" : "EMPTY";
+    el.siteCount.textContent = `${state.sites.length} site${state.sites.length === 1 ? "" : "s"}`; el.siteBadge.textContent = "AUTO"; el.inventoryState.textContent = state.sites.length ? "READY" : "NO SITES"; renderRail(); el.heroProjects.textContent = String(state.sites.length);
   }
 
   async function refresh(silent) {
-    if (state.loading) return;
-    state.loading = true;
-    els.statusText.textContent = "SYNC";
-    try {
-      if (!state.sites.length) await discoverSites();
-      if (state.selected) await loadSelected(); else await loadAll();
-      await loadRecent();
-      const stamp = new Date();
-      els.lastSync.textContent = `updated ${stamp.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"})}`;
-      els.statusText.textContent = "LIVE";
-    } catch (error) {
-      els.statusText.textContent = "DEGRADED";
-      if (!silent) handleError(error, "Analytics request failed. Existing data was kept on screen.");
-    } finally {
-      state.loading = false;
-    }
-  }
+    if (state.loading) return; state.loading = true; el.status.textContent = "SYNC"; el.dataBadge.textContent = "SYNCING";
+    try { if (!state.sites.length) await discoverSites(); const data = await workerJson(state.selected ? `/api/site/${encodeURIComponent(state.selected)}?days=${state.range}` : `/api/overview?days=${state.range}`); state.stats = normalize(data); renderScope(); await loadRecent(); el.status.textContent = "LIVE"; el.dataBadge.textContent = "SYNCED"; el.lastSync.textContent = `updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; el.heroIngest.textContent = `${formatCompact(state.stats?.totals?.events || state.stats?.totalViews || 0)} EVT/RANGE`; } catch (e) { el.status.textContent = "DEGRADED"; el.dataBadge.textContent = "STALE DATA"; if (!silent) fail(e, "Analytics request failed. Existing data was kept."); } finally { state.loading = false; } }
 
-  async function loadAll() {
-    const data = await workerJson(`/api/stats?days=${encodeURIComponent(state.range)}`);
-    state.stats = normalizeStats(data);
-    renderScope({ site: null, stats: state.stats });
-  }
+  function selectSite(id) { state.selected = id; renderRail(); refresh(false); }
+  function renderRail() { const q = (el.siteSearch.value || "").trim().toLowerCase(); state.filtered = state.sites.filter(s => !q || `${s.siteId} ${s.siteName}`.toLowerCase().includes(q)); el.siteList.innerHTML = ""; const all = document.createElement("button"); all.className = `site-item ${state.selected === null ? "active" : ""}`; all.innerHTML = `<span class="site-icon">Σ</span><span><b>All tracked sites</b><small>${state.sites.length} discovered projects</small></span>`; all.onclick = () => selectSite(null); el.siteList.appendChild(all); for (const s of state.filtered) { const b = document.createElement("button"); b.className = `site-item ${state.selected === s.siteId ? "active" : ""}`; b.innerHTML = `<span class="site-icon">${escapeHtml(initials(s.siteName))}</span><span><b>${escapeHtml(s.siteName)}</b><small>${escapeHtml(s.siteId)}</small></span>`; b.onclick = () => selectSite(s.siteId); el.siteList.appendChild(b); } if (!state.filtered.length) el.siteList.innerHTML += `<div class="empty-side">No matching project.</div>`; }
 
-  async function loadSelected() {
-    const key = `${state.selected}:${state.range}`;
-    let stats = state.siteStats.get(key);
-    if (!stats) {
-      const data = await workerJson(`/api/stats?site=${encodeURIComponent(state.selected)}&days=${encodeURIComponent(state.range)}`);
-      stats = normalizeStats(data);
-      state.siteStats.set(key, stats);
-    }
-    state.stats = stats;
-    const site = state.sites.find(s => s.siteId === state.selected) || { siteId: state.selected, siteName: state.selected };
-    renderScope({ site, stats });
-  }
+  function normalize(d) { if (state.selected) return d || { views: 0, uniqueVisitors: 0, sessions: 0, avgDurationMs: 0, today: {}, last7Days: [], series: [], devices: {}, topPages: [], recentVisits: [], countries: [], browsers: [], operatingSystems: [], ips: [], eventTypes: [] }; return d || { totalViews: 0, uniqueVisitors: 0, sessions: 0, avgDurationMs: 0, today: {}, daily: [], devices: {}, pages: [], countries: [], browsers: [], operatingSystems: [], ips: [], eventTypes: [] }; }
+  function renderScope() { const d = state.stats || {}; const t = state.selected ? { views: d.views, uniqueVisitors: d.uniqueVisitors, sessions: d.sessions, avgDurationMs: d.avgDurationMs } : { views: d.totalViews, uniqueVisitors: d.uniqueVisitors, sessions: d.sessions, avgDurationMs: d.avgDurationMs }; const site = state.sites.find(s => s.siteId === state.selected); el.siteTitle.textContent = site?.siteName || "All tracked sites"; el.siteMeta.textContent = state.selected ? `${formatNumber(t.views)} views · ${formatNumber(t.uniqueVisitors)} visitors · ${formatNumber(t.sessions)} sessions` : `Aggregated telemetry across ${state.sites.length} dynamically discovered projects`; el.siteAvatar.textContent = state.selected ? initials(site?.siteName || state.selected) : "ALL"; el.rangeBadge.textContent = `LAST ${state.range} DAYS`; renderMetrics(t, d); drawTraffic(state.selected ? d.series || d.last7Days || [] : d.daily || []); renderDevice(state.selected ? d.devices : d.devices); renderCountries(d.countries || []); renderPages(d.topPages || d.pages || []); renderMini(d.browsers || [], el.browserList, "browser"); renderMini(d.operatingSystems || [], el.osList, "os"); renderIps(d.ips || []); renderEvents(d.eventTypes || []); el.heroEdge.textContent = "ONLINE"; }
 
-  function selectSite(id) {
-    state.selected = id;
-    renderSiteRail();
-    refresh(false);
-  }
+  function renderMetrics(t, d) { const cards = [["PAGE VIEWS", t.views || 0, "⌁", `${formatNumber(d.today?.views || 0)} today`],["UNIQUE VISITORS", t.uniqueVisitors || 0, "◉", `${formatNumber(t.sessions || 0)} sessions`],["AVG. DURATION", formatDuration(t.avgDurationMs || 0), "◌", `scroll ${Math.round(d.avgScroll || 0)}%`],["TODAY", d.today?.views || 0, "◒", `${formatNumber(d.today?.uniqueVisitors || 0)} unique visitors`]]; el.metrics.innerHTML = cards.map((x,i) => `<article class="metric glass"><div class="metric-top"><span>${x[0]}</span><i class="metric-mark m${i}">${x[2]}</i></div><strong>${escapeHtml(String(x[1]))}</strong><small>${escapeHtml(x[3])}</small></article>`).join(""); }
 
-  function renderSiteRail() {
-    const q = (els.siteSearch.value || "").trim().toLowerCase();
-    state.filteredSites = state.sites.filter(s => !q || `${s.siteId} ${s.siteName}`.toLowerCase().includes(q));
-    els.siteList.innerHTML = "";
-    if (!state.filteredSites.length) {
-      els.siteList.innerHTML = `<div class="site-empty">No matching projects.<br>Try a different search term.</div>`;
-      return;
-    }
-    const all = document.createElement("div");
-    all.className = `site-item ${state.selected === null ? "active" : ""}`;
-    all.innerHTML = `<b>All tracked sites <span class="site-kpi">Σ</span></b><small>Aggregate across ${state.sites.length} projects</small>`;
-    all.onclick = () => selectSite(null);
-    els.siteList.appendChild(all);
-    state.filteredSites.forEach(site => {
-      const el = document.createElement("div");
-      el.className = `site-item ${state.selected === site.siteId ? "active" : ""}`;
-      const cached = latestSiteViews(site.siteId);
-      el.innerHTML = `<b>${escapeHtml(site.siteName)} ${cached !== null ? `<span class="site-kpi">${formatNumber(cached)}</span>` : ""}</b><small>${escapeHtml(site.siteId)}</small>`;
-      el.onclick = () => selectSite(site.siteId);
-      els.siteList.appendChild(el);
-    });
-  }
+  function drawTraffic(rows) { const canvas = el.traffic, rect = canvas.getBoundingClientRect(), dpr = Math.max(1, devicePixelRatio || 1), w = Math.max(320, Math.floor(rect.width)), h = Math.max(240, Math.floor(rect.height)); canvas.width = w * dpr; canvas.height = h * dpr; const ctx = canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h); const data = (rows || []).map(x => ({ date: x.date || x.day, value: Number(x.pageviews ?? x.views ?? 0) })).filter(x => x.date); if (!data.length) { el.trafficEmpty.classList.remove("hide"); el.trafficSummary.textContent = "0 views"; return; } el.trafficEmpty.classList.add("hide"); const values = data.map(x => x.value), max = Math.max(1, ...values), left = 34, right = 16, top = 22, bottom = 34, cw = w-left-right, ch = h-top-bottom; const grid = document.documentElement.classList.contains("light") ? "rgba(20,30,55,.10)" : "rgba(160,180,220,.10)"; ctx.strokeStyle = grid; ctx.lineWidth = 1; for(let i=0;i<4;i++){ const y=top+ch*i/3; ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(w-right,y);ctx.stroke(); } const pts = data.map((x,i)=>[left+(data.length===1?cw/2:cw*i/(data.length-1)), top+ch-(x.value/max)*ch]); const grad = ctx.createLinearGradient(0,top,0,h); grad.addColorStop(0,"rgba(93,247,255,.35)"); grad.addColorStop(1,"rgba(93,247,255,0)"); ctx.beginPath();ctx.moveTo(pts[0][0],h-bottom);pts.forEach(p=>ctx.lineTo(p[0],p[1]));ctx.lineTo(pts.at(-1)[0],h-bottom);ctx.closePath();ctx.fillStyle=grad;ctx.fill(); ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.strokeStyle="#5df7ff";ctx.lineWidth=2.6;ctx.shadowBlur=14;ctx.shadowColor="#5df7ff";ctx.stroke();ctx.shadowBlur=0; pts.forEach((p,i)=>{ctx.beginPath();ctx.arc(p[0],p[1],3,0,Math.PI*2);ctx.fillStyle="#07111d";ctx.fill();ctx.strokeStyle="#5df7ff";ctx.stroke(); if(i===pts.length-1){ctx.beginPath();ctx.arc(p[0],p[1],7,0,Math.PI*2);ctx.strokeStyle="rgba(93,247,255,.22)";ctx.stroke();}}); ctx.fillStyle=document.documentElement.classList.contains("light")?"#66728f":"#7f8baa";ctx.font="10px Inter";data.forEach((x,i)=>{if(i%Math.max(1,Math.ceil(data.length/6))===0||i===data.length-1)ctx.fillText(shortDate(x.date),Math.max(left,pts[i][0]-18),h-9)}); el.trafficSummary.textContent=`${formatNumber(values.reduce((a,b)=>a+b,0))} views`; }
 
-  function renderScope({ site, stats }) {
-    const totals = stats?.totals || {};
-    const all = !site;
-    els.siteTitle.textContent = site?.siteName || "All tracked sites";
-    els.siteMeta.textContent = all ? `Aggregated telemetry across ${state.sites.length} discovered projects` : `${formatNumber(totals.events || 0)} events · ${formatNumber(totals.pageviews || 0)} page views · ${formatNumber(totals.unique_visitors || 0)} visitors`;
-    els.siteAvatar.textContent = all ? "ALL" : initials(site.siteName || site.siteId);
-    els.rangeBadge.textContent = `LAST ${state.range} DAYS`;
-    els.dataBadge.textContent = "SYNCED";
-    renderMetrics(totals);
-    drawTraffic(stats?.daily || []);
-    renderDevice(stats?.devices || []);
-    renderCountries(stats?.countries || []);
-    renderPages(stats?.pages || []);
-    renderMiniBars(stats?.browsers || [], els.browserList, "browser");
-    renderMiniBars(stats?.operatingSystems || [], els.osList, "os");
-  }
+  function renderDevice(data) { const rows = Array.isArray(data) ? data.map(x=>({label:x.device||"Unknown",count:Number(x.count||0)})) : Object.entries(data||{}).map(([label,count])=>({label,count:Number(count||0)})); const total=rows.reduce((a,b)=>a+b.count,0)||1; const top=rows.sort((a,b)=>b.count-a.count).slice(0,5); const mobile=rows.filter(x=>/mobile/i.test(x.label)).reduce((a,b)=>a+b.count,0)/total*100; let acc=0; const stops=top.map((x,i)=>{const p=x.count/total*100;const s=`${palette[i%palette.length]} ${acc}% ${acc+p}%`;acc+=p;return s;}); if(acc<100)stops.push(`rgba(255,255,255,.08) ${acc}% 100%`); el.deviceDonut.style.background=`conic-gradient(${stops.join(",")})`;el.deviceCenter.textContent=`${Math.round(mobile)}%`;el.deviceLegend.innerHTML=top.length?top.map((x,i)=>`<div class="legend-row"><span><i style="background:${palette[i%palette.length]}"></i>${escapeHtml(x.label)}</span><b>${Math.round(x.count/total*100)}%</b></div>`).join(""):empty(); }
+  function renderCountries(rows){renderRank(rows.map(x=>({label:x.country||x.label||"Unknown",count:Number(x.count||0)})),el.countryList);}
+  function renderPages(rows){renderRank(rows.map(x=>({label:x.path||"/",count:Number(x.views??x.count??0),title:x.title||""})),el.pageList);}
+  function renderRank(rows,target){const data=rows.sort((a,b)=>b.count-a.count).slice(0,8),max=Math.max(1,...data.map(x=>x.count));target.innerHTML=data.length?data.map((x,i)=>`<div class="rank-row"><span class="rank-no">${String(i+1).padStart(2,"0")}</span><div class="rank-main"><b title="${escapeHtml(x.title||x.label)}">${escapeHtml(x.label)}</b><div class="bar"><i style="width:${Math.round(x.count/max*100)}%"></i></div></div><strong>${formatNumber(x.count)}</strong></div>`).join(""):empty();}
+  function renderMini(rows,target,key){const data=(Array.isArray(rows)?rows:[]).map(x=>({label:x[key]||x.label||"Unknown",count:Number(x.count||0)})).sort((a,b)=>b.count-a.count).slice(0,6),max=Math.max(1,...data.map(x=>x.count));target.innerHTML=data.length?data.map(x=>`<div class="mini-row"><span title="${escapeHtml(x.label)}">${escapeHtml(x.label)}</span><div><i style="width:${Math.round(x.count/max*100)}%"></i></div><b>${formatCompact(x.count)}</b></div>`).join(""):empty();}
+  function renderIps(rows){const data=(Array.isArray(rows)?rows:[]).sort((a,b)=>Number(b.count||0)-Number(a.count||0)).slice(0,10);el.ipSummary.textContent=`${data.length} top IPs`;el.ipList.innerHTML=data.length?data.map((x,i)=>`<div class="ip-card"><div class="ip-rank">${String(i+1).padStart(2,"0")}</div><div><strong>${escapeHtml(x.ip||"—")}</strong><span>${escapeHtml([x.city,x.country].filter(Boolean).join(", ")||"Unknown location")}</span><small>${escapeHtml(x.browser||"Unknown")} · ${escapeHtml(x.os||"Unknown")} · ${escapeHtml(x.device||"Unknown")}</small></div><b>${formatNumber(x.count||0)}</b></div>`).join(""):empty();}
+  function renderEvents(rows){const data=(Array.isArray(rows)?rows:[]).sort((a,b)=>Number(b.count||0)-Number(a.count||0));el.eventCloud.innerHTML=data.length?data.map((x,i)=>`<span class="event-chip c${i%6}"><b>${escapeHtml(x.type||x.event_type||"custom")}</b><small>${formatNumber(x.count||0)}</small></span>`).join(""):empty();}
 
-  function renderMetrics(t) {
-    const avgSec = Math.round(Number(t.avg_duration_ms || 0) / 1000);
-    const cards = [
-      ["PAGE VIEWS", t.pageviews || 0, "⌁", `${formatNumber(t.events || 0)} total events`],
-      ["UNIQUE VISITORS", t.unique_visitors || 0, "◉", `${formatNumber(t.sessions || 0)} sessions`],
-      ["AVG. DURATION", formatDuration(t.avg_duration_ms || 0), "◌", `avg. scroll ${Math.round(Number(t.avg_scroll || 0))}%`],
-      ["ACTIVE PROJECTS", state.sites.length, "◆", `${state.selected ? "site scope selected" : "dynamic inventory"}`]
-    ];
-    els.metrics.innerHTML = cards.map(([label,value,icon,sub]) => `<article class="metric-card panel"><div class="metric-top"><span class="metric-label">${label}</span><span class="metric-icon">${icon}</span></div><b class="metric-value">${escapeHtml(String(value))}</b><div class="metric-delta">${escapeHtml(sub)}</div></article>`).join("");
-  }
+  async function loadRecent(){el.recentStatus.textContent="loading archive…"; try {const scope=state.selected?state.sites.filter(x=>x.siteId===state.selected):state.sites; const chunks=[]; for(const site of scope.slice(0,20)){const events=await recentForSite(site);chunks.push(...events);} const all=chunks.sort((a,b)=>new Date(a.receivedAt||0)-new Date(b.receivedAt||0)).reverse().slice(0,Number(C.recentLimit||30));el.recentRows.innerHTML=all.length?all.map(renderRecent).join(""):`<tr><td colspan="9" class="empty-cell">No archived visitor events found.</td></tr>`;el.recentStatus.textContent=`${all.length} archived events`;} catch(e){el.recentRows.innerHTML=`<tr><td colspan="9" class="empty-cell">Archive unavailable right now.</td></tr>`;el.recentStatus.textContent="archive unavailable";} }
+  async function recentForSite(site){const out=[];for(let d=0;d<Math.max(1,Number(C.maxRecentDaysToScan||3));d++){const date=new Date(Date.now()-d*86400000);const path=`data/sites/${encodeURIComponent(site.siteId)}/events/${date.getUTCFullYear()}/${String(date.getUTCMonth()+1).padStart(2,"0")}/${String(date.getUTCDate()).padStart(2,"0")}`;let items=state.cache.get(path);if(!items){try{items=await githubJson(`${GITHUB}/contents/${path}?ref=${encodeURIComponent(BRANCH)}`);state.cache.set(path,items);}catch{continue;}}if(!Array.isArray(items))continue;for(const item of items.filter(x=>x.type==="file").slice(-15)){let data=state.cache.get(`raw:${item.download_url}`);if(!data){try{data=await githubJson(item.download_url);state.cache.set(`raw:${item.download_url}`,data);}catch{continue;}}if(data?.event){out.push(data.event);}}}return out;}
+  function renderRecent(e){const siteName=e.siteName||state.sites.find(s=>s.siteId===e.siteId)?.siteName||e.siteId||"—";const loc=[e.city,e.country].filter(Boolean).join(", ")||"Unknown";return `<tr><td>${escapeHtml(formatDateTime(e.receivedAt||e.occurredAt))}</td><td><span class="site-tag">${escapeHtml(siteName)}</span></td><td><code class="ip-code">${escapeHtml(e.ip||"—")}</code></td><td><span class="loc"><b>${escapeHtml(loc)}</b>${e.asn?`<small>ASN ${escapeHtml(e.asn)}</small>`:""}</span></td><td title="${escapeHtml(e.pageUrl||e.path||"")}">${escapeHtml(e.path||"/")}</td><td>${escapeHtml(e.device||"Unknown")}</td><td>${escapeHtml(e.browser||"Unknown")}</td><td>${escapeHtml(formatDuration(e.durationMs||0))}</td><td>${escapeHtml(e.referrerHost||"Direct")}</td></tr>`;}
 
-  function drawTraffic(daily) {
-    const canvas = els.traffic, rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1), width = Math.max(320, Math.floor(rect.width)), height = Math.max(220, Math.floor(rect.height));
-    canvas.width = width * dpr; canvas.height = height * dpr;
-    const ctx = canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,width,height);
-    if (!daily.length) { els.trafficEmpty.classList.remove("hide"); els.trafficSummary.textContent = "0 views"; return; }
-    els.trafficEmpty.classList.add("hide");
-    const values = daily.map(x => Number(x.pageviews || 0)), max = Math.max(1, ...values);
-    const left = 28, right = 12, top = 18, bottom = 36, chartW = width-left-right, chartH = height-top-bottom;
-    ctx.strokeStyle = "rgba(140,160,200,.12)"; ctx.lineWidth = 1;
-    for (let i=0;i<4;i++){ const y=top + chartH*(i/3); ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke(); }
-    const points = values.map((v,i)=>{ const x=left + (daily.length===1?chartW/2:chartW*(i/(daily.length-1))); const y=top+chartH-(v/max)*chartH; return [x,y]; });
-    const gradient=ctx.createLinearGradient(0,top,0,height);gradient.addColorStop(0,"rgba(124,247,255,.30)");gradient.addColorStop(1,"rgba(124,247,255,0)");
-    ctx.beginPath();ctx.moveTo(points[0][0],height-bottom);points.forEach(([x,y])=>ctx.lineTo(x,y));ctx.lineTo(points.at(-1)[0],height-bottom);ctx.closePath();ctx.fillStyle=gradient;ctx.fill();
-    ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle="#7cf7ff";ctx.lineWidth=2.7;ctx.shadowBlur=12;ctx.shadowColor="#7cf7ff";ctx.stroke();ctx.shadowBlur=0;
-    points.forEach(([x,y],i)=>{ctx.beginPath();ctx.arc(x,y,3.2,0,Math.PI*2);ctx.fillStyle="#061018";ctx.fill();ctx.strokeStyle="#7cf7ff";ctx.lineWidth=1.5;ctx.stroke(); if(i===daily.length-1){ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.strokeStyle="rgba(124,247,255,.18)";ctx.stroke();}});
-    ctx.fillStyle="#7886a5";ctx.font="10px Inter";daily.forEach((x,i)=>{if(i%Math.max(1,Math.ceil(daily.length/6))===0 || i===daily.length-1){const p=points[i];ctx.fillText(shortDate(x.date),Math.max(left,p[0]-18),height-10);}});
-    const total=values.reduce((a,b)=>a+b,0);els.trafficSummary.textContent=`${formatNumber(total)} views`;
-  }
-
-  function renderDevice(rows) {
-    const data = normalizeRows(rows, "device"), total=data.reduce((a,b)=>a+b.count,0)||1, top=data.slice(0,4);
-    const mobile = ((data.find(x=>/mobile/i.test(x.label))?.count||0)/total)*100;
-    const stops = []; let acc=0; top.forEach((x,i)=>{const pct=x.count/total*100;stops.push(`${colors[i]} ${acc}% ${acc+pct}%`);acc+=pct;}); if(acc<100)stops.push(`rgba(255,255,255,.08) ${acc}% 100%`);
-    els.deviceDonut.style.background=`conic-gradient(${stops.join(",")})`;
-    els.deviceCenter.textContent=`${Math.round(mobile)}%`;
-    els.deviceLegend.innerHTML=top.length?top.map((x,i)=>`<div class="legend-row"><span><i style="background:${colors[i]}"></i>${escapeHtml(x.label)}</span><b>${Math.round(x.count/total*100)}%</b></div>`).join(""):emptyText();
-  }
-
-  function renderCountries(rows){renderRank(rows.map(x=>({label:x.country || "Unknown",count:Number(x.count||0)})), els.countryList, true);}
-  function renderPages(rows){renderRank(rows.map(x=>({label:x.path || "/",count:Number(x.count||0),title:x.title||""})), els.pageList, true);}
-  function renderRank(rows, target, withBar){ const data=rows.sort((a,b)=>b.count-a.count).slice(0,8), max=Math.max(1,...data.map(x=>x.count));target.innerHTML=data.length?data.map((x,i)=>`<div class="rank-row"><span class="rank-no">${String(i+1).padStart(2,"0")}</span><div class="rank-main"><span class="rank-label" title="${escapeHtml(x.title||x.label)}">${escapeHtml(x.label)}</span>${withBar?`<div class="rank-bar"><i style="width:${Math.round(x.count/max*100)}%"></i></div>`:""}</div><b class="rank-value">${formatNumber(x.count)}</b></div>`).join(""):emptyText(); }
-  function renderMiniBars(rows,target,key){const data=normalizeRows(rows,key).slice(0,6),max=Math.max(1,...data.map(x=>x.count));target.innerHTML=data.length?data.map(x=>`<div class="mini-row"><span title="${escapeHtml(x.label)}">${escapeHtml(x.label)}</span><div class="mini-track"><i style="width:${Math.round(x.count/max*100)}%"></i></div><b>${formatCompact(x.count)}</b></div>`).join(""):emptyText();}
-
-  async function loadRecent(){
-    els.recentStatus.textContent="loading archive…";
-    try {
-      const sites = state.selected ? state.sites.filter(s=>s.siteId===state.selected) : state.sites;
-      const jobs = [];
-      sites.slice(0, 20).forEach(site => jobs.push(loadSiteRecent(site)));
-      const all = (await Promise.all(jobs)).flat().sort((a,b)=>new Date(b.event?.received_at||b.event?.receivedAt||b.received_at||b.receivedAt||0)-new Date(a.event?.received_at||a.event?.receivedAt||a.received_at||a.receivedAt||0)).slice(0, Number(C.recentLimit||25));
-      els.recentRows.innerHTML = all.length ? all.map(renderRecentRow).join("") : `<tr><td colspan="7" class="muted">No archived events found for the current scope.</td></tr>`;
-      els.recentStatus.textContent=`${all.length} archived events`;
-    } catch (error) {
-      els.recentRows.innerHTML=`<tr><td colspan="7" class="muted">Recent archive unavailable right now.</td></tr>`;
-      els.recentStatus.textContent="archive unavailable";
-      if (!state.loading) console.warn(error);
-    }
-  }
-
-  async function loadSiteRecent(site){
-    const events=[];
-    for(let d=0;d<Math.max(1,Number(C.maxRecentDaysToScan||3));d++){
-      const date=new Date(Date.now()-d*86400000); const path=`data/sites/${encodeURIComponent(site.siteId)}/events/${date.getUTCFullYear()}/${String(date.getUTCMonth()+1).padStart(2,'0')}/${String(date.getUTCDate()).padStart(2,'0')}`;
-      const cacheKey=path, cached=state.githubCache.get(cacheKey);
-      let items=cached;
-      if(!items){ items=await githubJson(`${GITHUB}/contents/${path}?ref=${encodeURIComponent(BRANCH)}`); state.githubCache.set(cacheKey,items); }
-      if(!Array.isArray(items)) continue;
-      for(const item of items.filter(x=>x.type==='file').slice(-12)){
-        const rawKey=`raw:${item.download_url}`; let data=state.githubCache.get(rawKey); if(!data){ data=await githubJson(item.download_url); state.githubCache.set(rawKey,data); }
-        if(data?.event){events.push(data);} else if(data?.schemaVersion && data.event){events.push(data);}
-      }
-    }
-    return events;
-  }
-
-  function renderRecentRow(wrapper){
-    const e=wrapper.event||wrapper; const site=wrapper.site||{}; const at=e.received_at||e.receivedAt||wrapper.archivedAt||wrapper.received_at||wrapper.receivedAt;
-    const path=e.path||e.page_path||e.pagePath||"/"; const loc=[e.city,e.country].filter(Boolean).join(", ")||"—"; const device=e.device||e.device_type||"Unknown"; const dur=e.duration_ms||e.durationMs||0; const ref=e.referrer_host||e.referrerHost||"Direct";
-    return `<tr><td>${escapeHtml(formatDateTime(at))}</td><td>${escapeHtml(site.name||site.siteName||e.siteName||e.site_id||e.siteId||"—")}</td><td title="${escapeHtml(e.page_url||e.pageUrl||path)}">${escapeHtml(path)}</td><td>${escapeHtml(loc)}</td><td><span class="pill">${escapeHtml(device)}</span></td><td>${escapeHtml(formatDuration(dur))}</td><td>${escapeHtml(ref)}</td></tr>`;
-  }
-
-  function normalizeStats(data){return data||{totals:{},countries:[],browsers:[],operatingSystems:[],devices:[],pages:[],daily:[]};}
-  function normalizeRows(rows,key){ if(!Array.isArray(rows)) return Object.entries(rows||{}).map(([label,count])=>({label,count:Number(count||0)})); return rows.map(x=>({label:x[key]||x.name||x.label||"Unknown",count:Number(x.count||0)})).filter(x=>x.count>=0); }
-  function latestSiteViews(id){const v=state.siteStats.get(`${id}:${state.range}`);return v?.totals?.pageviews ?? null;}
-  function prettifySiteName(id){return String(id).replace(/[-_.]+/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
-  function initials(s){const a=String(s).trim().split(/\s+/).slice(0,2);return a.map(x=>x[0]).join('').toUpperCase()||"PI";}
-  function shortDate(x){try{return new Date(`${x}T00:00:00Z`).toLocaleDateString(undefined,{month:'short',day:'numeric',timeZone:'UTC'});}catch{return x||"";}}
-  function formatNumber(n){return new Intl.NumberFormat().format(Number(n)||0)}
-  function formatCompact(n){const x=Number(n)||0;return x>=1000?`${(x/1000).toFixed(x>=10000?0:1)}k`:String(Math.round(x));}
+  function empty(){return `<div class="empty">No data available.</div>`;}
+  function normalizeRowValue(x,key){return x?.[key]??x?.count??0;}
+  function formatNumber(n){return new Intl.NumberFormat().format(Number(n)||0);} function formatCompact(n){const x=Number(n)||0;return x>=1000000?`${(x/1e6).toFixed(1)}m`:x>=1000?`${(x/1e3).toFixed(x>=10000?0:1)}k`:String(Math.round(x));}
   function formatDuration(ms){let s=Math.max(0,Math.round(Number(ms||0)/1000));if(s<60)return `${s}s`;const m=Math.floor(s/60),r=s%60;return `${m}m ${r}s`;}
-  function formatDateTime(x){try{return new Date(x).toLocaleString(undefined,{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}catch{return "—";}}
-  function emptyText(){return `<div class="muted" style="font-size:10px;padding:16px 0">No data available in this range.</div>`;}
+  function formatDateTime(x){try{return new Date(x).toLocaleString(undefined,{month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch{return "—";}}
+  function shortDate(x){try{return new Date(`${x}T00:00:00Z`).toLocaleDateString(undefined,{month:"short",day:"numeric",timeZone:"UTC"});}catch{return x||"";}}
+  function initials(s){const a=String(s||"").trim().split(/\s+/).filter(Boolean).slice(0,2);return (a.map(x=>x[0]).join("")||"PI").toUpperCase();}
+  function prettify(s){return String(s||"").replace(/[-_.]+/g," ").replace(/\w/g,m=>m.toUpperCase());}
   function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));}
-  function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
-  function readLocalCache(k){try{const x=JSON.parse(localStorage.getItem(k)||"null");return x?.data?x:null}catch{return null}}
-  function writeLocalCache(k,data){try{localStorage.setItem(k,JSON.stringify({at:Date.now(),data}))}catch{}}
-
-  async function workerJson(path){const r=await fetch(`${WORKER}${path}`,{cache:'no-store'});if(!r.ok){let t="";try{t=await r.text()}catch{}throw new Error(`Worker ${r.status}: ${t.slice(0,250)}`)}return r.json();}
-  async function githubJson(url){const r=await fetch(url,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});if(!r.ok) throw new Error(`GitHub ${r.status}: ${url}`);return r.json();}
-  function handleError(error,message){console.error(error);toast(message,true);}
-  function toast(message,error=false){const el=document.createElement('div');el.className=`toast${error?' error':''}`;el.textContent=message;els.toastStack.appendChild(el);setTimeout(()=>el.remove(),4200);}
-  function applyTheme(theme){document.documentElement.classList.toggle('light',theme==='light');localStorage.setItem('gpi-theme',theme);}
+  function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+  function readCache(k){try{const x=JSON.parse(localStorage.getItem(`gpi:${k}`)||"null");return x?.data||null;}catch{return null;}}
+  function writeCache(k,data){try{localStorage.setItem(`gpi:${k}`,JSON.stringify({at:Date.now(),data}));}catch{}}
+  async function workerJson(path){const r=await fetch(`${WORKER}${path}`,{cache:"no-store"});if(!r.ok){let t="";try{t=await r.text();}catch{}throw new Error(`Worker ${r.status}: ${t.slice(0,300)}`);}return r.json();}
+  async function githubJson(url){const r=await fetch(url,{headers:{Accept:"application/vnd.github+json"},cache:"no-store"});if(!r.ok)throw new Error(`GitHub ${r.status}`);return r.json();}
+  function fail(e,msg){console.error(e);const n=document.createElement("div");n.className="toast error";n.textContent=msg;el.toast.appendChild(n);setTimeout(()=>n.remove(),4200);}
 })();

@@ -1,14 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" fill="none">
-  <defs>
-    <linearGradient id="g" x1="16" y1="12" x2="145" y2="148" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7CF7FF"/><stop offset=".45" stop-color="#6E7BFF"/><stop offset="1" stop-color="#D74BFF"/>
-    </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  </defs>
-  <rect x="10" y="10" width="140" height="140" rx="38" fill="#0A1020" stroke="url(#g)" stroke-width="4"/>
-  <circle cx="80" cy="80" r="43" stroke="url(#g)" stroke-width="5" opacity=".8"/>
-  <ellipse cx="80" cy="80" rx="57" ry="24" stroke="#7CF7FF" stroke-width="2.5" opacity=".45" transform="rotate(-24 80 80)"/>
-  <circle cx="121" cy="49" r="8" fill="#C8FFFF" filter="url(#glow)"/>
-  <path d="M51 99V61h10v38H51Zm17 0V70h10v29H68Zm17 0V54h10v45H85Z" fill="url(#g)"/>
-  <path d="M49 112h62" stroke="#9EACCB" stroke-width="3" stroke-linecap="round" opacity=".55"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5df7ff"/><stop offset=".55" stop-color="#8b6cff"/><stop offset="1" stop-color="#ff63d8"/></linearGradient><filter id="b"><feGaussianBlur stdDeviation="3" result="x"/></filter></defs><circle cx="64" cy="64" r="52" fill="none" stroke="#5df7ff" stroke-opacity=".18" stroke-width="2"/><circle cx="64" cy="64" r="42" fill="none" stroke="#8b6cff" stroke-opacity=".18" stroke-width="2"/><circle cx="64" cy="64" r="27" fill="#081220" stroke="url(#g)" stroke-width="3"/><circle cx="64" cy="64" r="9" fill="url(#g)" filter="url(#b)"/><circle cx="64" cy="64" r="6" fill="url(#g)"/><path d="M18 64h22M88 64h22M64 18v22M64 88v22" stroke="url(#g)" stroke-width="3" stroke-linecap="round"/></svg>
