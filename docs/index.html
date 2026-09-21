@@ -90,6 +90,14 @@
     <footer class="footer">Universal Event Insights · request-driven analytics fabric · <span id="footVersion"></span></footer>
   </main>
 
+
+  <div class="event-modal" id="eventModal" aria-hidden="true">
+    <div class="event-dialog">
+      <div class="event-dialog-head"><div><div class="eyebrow">EVENT INSPECTOR</div><h2 id="eventModalTitle">Event details</h2></div><button class="icon-btn" type="button" onclick="closeEventModal()" aria-label="Close">✕</button></div>
+      <div id="eventModalBody" class="event-dialog-body"></div>
+    </div>
+  </div>
+
   <div class="toast-stack" id="toasts"></div>
   <script src="app.js"></script>
 <script src="analytics.js"></script>

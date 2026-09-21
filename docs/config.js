@@ -1,10 +1,18 @@
-window.UNIVERSAL_EVENT_INSIGHTS_CONFIG = {
+window.PAGE_INSIGHTS_CONFIG = {
   workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
-  refreshMs: 30000,
+  githubOwner: "mehrdadmb2",
+  githubRepo: "github-page-insights",
+  githubBranch: "main",
+  apiVersion: "v1",
+  autoRefreshMs: 30000,
   healthRefreshMs: 120000,
-  defaultDays: 7,
-  recentLimit: 120,
+  recentLimit: 50,
+  siteConcurrency: 3,
+  githubCacheMs: 90000,
+  maxRecentDaysToScan: 7,
+  defaultRangeDays: 7,
   showRawIp: true,
-  sampleRate: 1,
-  heartbeatMs: 30000
+  showPlatformIp: true,
+  showRequestDetails: true,
+  showPayloadDetails: true
 };

@@ -1,92 +1,179 @@
 {
-  "contractVersion": "1.0",
-  "service": "Universal Event Insights",
-  "workerBaseUrl": "https://github-page-insights-worker.game-developer-mb.workers.dev",
-  "identityField": "platformId",
-  "genericPayload": true,
-  "dynamicFolders": true,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Universal Event Insights API v8",
+  "version": "8.0",
+  "type": "object",
   "endpoints": {
     "collect": {
       "method": "POST",
-      "path": "/v1/events"
+      "path": "/v1/events",
+      "required": [
+        "platformId"
+      ]
     },
     "platforms": {
       "method": "GET",
       "path": "/v1/platforms"
     },
-    "overview": {
-      "method": "GET",
-      "path": "/v1/overview?days=7"
-    },
     "platform": {
       "method": "GET",
-      "path": "/v1/platforms/<platformId>?days=7"
-    },
-    "platformEvents": {
-      "method": "GET",
-      "path": "/v1/platforms/<platformId>/events?days=7&limit=100"
+      "path": "/v1/platforms/<platformId>"
     },
     "events": {
       "method": "GET",
-      "path": "/v1/events?days=7&limit=100"
+      "path": "/v1/platforms/<platformId>/events"
+    },
+    "visitors": {
+      "method": "GET",
+      "path": "/v1/platforms/<platformId>/visitors"
+    },
+    "sessions": {
+      "method": "GET",
+      "path": "/v1/platforms/<platformId>/sessions"
+    },
+    "overview": {
+      "method": "GET",
+      "path": "/v1/overview"
     },
     "health": {
       "method": "GET",
-      "path": "/v1/health?probe=github"
+      "path": "/v1/health"
     },
     "schema": {
       "method": "GET",
       "path": "/v1/schema"
     },
-    "adminEvents": {
+    "adminEvent": {
       "method": "GET",
-      "path": "/v1/admin/events"
+      "path": "/v1/admin/event?id=<eventId>",
+      "auth": "X-Admin-Key"
     },
-    "telegramWebhook": {
+    "adminArchiveRetry": {
       "method": "POST",
-      "path": "/telegram/webhook"
+      "path": "/v1/admin/archive-retry/<eventId>",
+      "auth": "X-Admin-Key"
     }
   },
-  "requiredFields": [
-    "platformId | platform | platformName | name"
-  ],
-  "recommendedFields": [
-    "platformId",
-    "platformName",
-    "platformType",
-    "eventType",
-    "eventId",
-    "sessionId",
-    "visitorId",
-    "timestamp",
-    "data",
-    "metadata"
-  ],
-  "eventTypes": [
-    "pageview",
-    "heartbeat",
-    "pageleave",
-    "visibility",
-    "click",
-    "outbound_click",
-    "scroll",
-    "request",
-    "login",
-    "logout",
-    "purchase",
-    "error",
-    "custom"
-  ],
-  "adminEndpoints": {
-    "notifications": {
-      "method": "GET",
-      "path": "/v1/admin/notifications",
-      "auth": "X-Admin-Key"
-    },
-    "platformKey": {
-      "method": "POST",
-      "path": "/v1/admin/platform-key",
-      "auth": "X-Admin-Key"
-    }
+  "event": {
+    "required": [
+      "platformId"
+    ],
+    "standardFields": [
+      "id",
+      "received_at",
+      "occurred_at",
+      "event_type",
+      "event_version",
+      "platform_id",
+      "platform_name",
+      "platform_type",
+      "environment",
+      "app_version",
+      "sdk_name",
+      "sdk_version",
+      "source",
+      "user_id",
+      "session_id",
+      "visitor_id",
+      "anonymous_id",
+      "trace_id",
+      "request_id",
+      "page_url",
+      "path",
+      "query_string",
+      "title",
+      "referrer",
+      "referrer_host",
+      "language",
+      "accept_language",
+      "timezone",
+      "country",
+      "region",
+      "region_code",
+      "city",
+      "continent",
+      "colo",
+      "asn",
+      "as_organization",
+      "latitude",
+      "longitude",
+      "postal_code",
+      "metro_code",
+      "ip",
+      "ip_hash",
+      "platform_ip",
+      "forwarded_for",
+      "ip_source",
+      "user_agent",
+      "browser",
+      "browser_version",
+      "os",
+      "os_version",
+      "device",
+      "device_vendor",
+      "device_model",
+      "screen_width",
+      "screen_height",
+      "viewport_width",
+      "viewport_height",
+      "device_pixel_ratio",
+      "color_depth",
+      "connection_type",
+      "connection_downlink",
+      "connection_rtt",
+      "connection_save_data",
+      "http_method",
+      "request_url",
+      "request_scheme",
+      "request_host",
+      "request_path",
+      "request_query",
+      "request_content_type",
+      "request_content_length",
+      "accept_header",
+      "accept_encoding",
+      "origin_header",
+      "cf_ray",
+      "tls_version",
+      "client_tcp_rtt",
+      "client_quic_rtt",
+      "bot_score",
+      "verified_bot",
+      "ja3",
+      "ja4",
+      "response_status",
+      "duration_ms",
+      "max_scroll",
+      "clicks",
+      "outbound_clicks",
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "data_json",
+      "metadata_json",
+      "headers_json",
+      "cf_json",
+      "request_json",
+      "payload_json",
+      "raw_event_json"
+    ],
+    "flexibleObjects": [
+      "data",
+      "metadata",
+      "payload",
+      "page",
+      "identity",
+      "screen",
+      "viewport",
+      "connection",
+      "request"
+    ]
+  },
+  "privacy": {
+    "rawClientIp": "stored in events.ip when available",
+    "platformIp": "optional client-supplied platformIp is stored in events.platform_ip",
+    "redaction": "credential-like fields and sensitive request headers are redacted before JSON persistence"
   }
 }

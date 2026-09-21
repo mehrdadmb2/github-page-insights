@@ -1,0 +1,55 @@
+{
+  "platformId": "test-platform",
+  "platformName": "Test Platform",
+  "platformType": "web",
+  "platformUrl": "https://example.com",
+  "platformIp": "203.0.113.10",
+  "environment": "production",
+  "appVersion": "1.0.0",
+  "sdkName": "manual-test",
+  "sdkVersion": "8.0.0",
+  "eventType": "pageview",
+  "eventId": "manual-v8-test-001",
+  "timestamp": "2026-09-21T12:00:00.000Z",
+  "identity": {
+    "userId": "user-001",
+    "visitorId": "visitor-001",
+    "sessionId": "session-001",
+    "anonymousId": "anon-001"
+  },
+  "page": {
+    "url": "https://example.com/dashboard?utm_source=demo&utm_campaign=v8",
+    "path": "/dashboard",
+    "title": "Dashboard",
+    "referrer": "https://google.com/"
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "devicePixelRatio": 1,
+    "colorDepth": 24
+  },
+  "viewport": {
+    "width": 1500,
+    "height": 900
+  },
+  "connection": {
+    "type": "4g",
+    "downlink": 20,
+    "rtt": 40,
+    "saveData": false
+  },
+  "responseStatus": 200,
+  "durationMs": 1250,
+  "maxScroll": 86,
+  "clicks": 4,
+  "outboundClicks": 1,
+  "data": {
+    "customAction": "opened-dashboard",
+    "plan": "demo"
+  },
+  "metadata": {
+    "tenant": "demo",
+    "source": "manual-test"
+  }
+}
