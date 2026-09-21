@@ -1,39 +1,89 @@
-(() => {
+(function () {
   "use strict";
+  if (window.__UNIVERSAL_EVENT_INSIGHTS__) return;
+  window.__UNIVERSAL_EVENT_INSIGHTS__ = true;
 
-  const meta = name => document.querySelector(`meta[name="${name}"]`)?.content?.trim() || "";
-  const config = window.PAGE_INSIGHTS_CONFIG || {};
-  const worker = String(config.workerUrl || "").replace(/\/+$/, "");
-  const siteId = normalize(meta("page-insights-site-id") || document.documentElement.dataset.pageInsightsSiteId || location.hostname);
-  const siteName = (meta("page-insights-site-name") || document.documentElement.dataset.pageInsightsSiteName || document.title || siteId).slice(0,160);
-  const SESSION_KEY = `gpi-session:${siteId}`;
-  const VISITOR_KEY = "gpi-visitor";
-  const started = Date.now();
-  let sessionId = localStorage.getItem(SESSION_KEY);
-  let visitorId = localStorage.getItem(VISITOR_KEY);
-  if (!sessionId) { sessionId = uuid(); localStorage.setItem(SESSION_KEY, sessionId); }
-  if (!visitorId) { visitorId = uuid(); localStorage.setItem(VISITOR_KEY, visitorId); }
-  let maxScroll = 0;
-  let clicks = 0;
-  let outboundClicks = 0;
-  let lastSent = 0;
-  let pageviewSent = false;
-  const heartbeatMs = Math.max(10000, Number(config.heartbeatMs || 15000));
+  const C = window.UNIVERSAL_EVENT_INSIGHTS_CONFIG || {};
+  const script = document.currentScript;
+  const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content?.trim() || "";
+  const worker = String(C.workerUrl || script?.dataset?.workerUrl || meta("uei-worker-url") || "").replace(/\/+$/, "");
+  if (!worker) return;
 
-  function normalize(v){return String(v||"").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9._-]+/g,"-").replace(/-+/g,"-").replace(/^[-.]+|[-.]+$/g,"").slice(0,64) || "site";}
-  function uuid(){return crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;}
-  function screenInfo(){return {width:screen.width,height:screen.height,devicePixelRatio:devicePixelRatio||1,colorDepth:screen.colorDepth||0};}
-  function viewportInfo(){return {width:innerWidth,height:innerHeight};}
-  function connectionInfo(){const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;return c ? {type:c.effectiveType||c.type||null,downlink:c.downlink,rtt:c.rtt,saveData:!!c.saveData}:null;}
-  function payload(type, extra={}){return {siteId,siteName,eventType:type,type,sessionId,visitorId,timestamp:new Date().toISOString(),pageUrl:location.href,path:location.pathname+location.search,title:document.title,referrer:document.referrer,language:navigator.language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,screen:screenInfo(),viewport:viewportInfo(),connection:connectionInfo(),durationMs:Date.now()-started,maxScroll,clicks,outboundClicks,metadata:{source:"github-page-insights-analytics",version:"1.0.0"},...extra};}
-  function send(type,extra={}){const body=JSON.stringify(payload(type,extra)); if (!worker || lastSent && type==="pageview" && pageviewSent) return; lastSent=Date.now(); if (navigator.sendBeacon && body.length < 60000) {try{const blob=new Blob([body],{type:"application/json"}); if(navigator.sendBeacon(`${worker}/collect`,blob)) return true;}catch{} } fetch(`${worker}/collect`,{method:"POST",headers:{"Content-Type":"application/json"},body,keepalive:true,credentials:"omit"}).catch(()=>{}); return true;}
-  function scrollPercent(){const root=document.documentElement;const max=Math.max(1,root.scrollHeight-innerHeight);return Math.min(100,Math.round((scrollY/max)*100));}
-  send("pageview"); pageviewSent=true;
-  const interval=setInterval(()=>send("heartbeat"),heartbeatMs);
-  addEventListener("scroll",()=>{const p=scrollPercent();if(p>maxScroll){maxScroll=p;if(p===25||p===50||p===75||p===90||p===100)send("scroll");}},{passive:true});
-  addEventListener("click",e=>{clicks++;const a=e.target?.closest?.("a[href]");if(a){try{const u=new URL(a.href,location.href);if(u.origin!==location.origin){outboundClicks++;send("outbound_click",{metadata:{href:a.href,text:(a.textContent||"").trim().slice(0,200)}});}}catch{}}});
-  addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")send("visibility");});
-  addEventListener("pagehide",()=>{clearInterval(interval);send("pageleave");});
-  addEventListener("beforeunload",()=>send("pageleave"));
-  window.GitHubPageInsights = {siteId,siteName,sessionId,visitorId,track:(type,metadata)=>send(String(type||"custom"),{metadata:metadata||{}}),flush:()=>send("heartbeat")};
+  const slug = (v) => String(v || "").trim().toLowerCase().normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 80);
+  const id = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const get = (s, k) => { try { return s.getItem(k); } catch { return null; } };
+  const put = (s, k, v) => { try { s.setItem(k, v); } catch {} };
+
+  const platformId = slug(script?.dataset?.platformId || meta("uei-platform-id") || meta("page-insights-site-id") || C.platformId || location.hostname || "unknown-platform");
+  const platformName = script?.dataset?.platformName || meta("uei-platform-name") || meta("page-insights-site-name") || C.platformName || document.title || platformId;
+  const platformType = script?.dataset?.platformType || meta("uei-platform-type") || C.platformType || "web";
+  const sampleRate = Math.max(0, Math.min(1, Number(C.sampleRate ?? 1)));
+  if (Math.random() > sampleRate) return;
+
+  let visitorId = get(localStorage, `uei:visitor:${platformId}`);
+  if (!visitorId) { visitorId = id(); put(localStorage, `uei:visitor:${platformId}`, visitorId); }
+
+  let session = null;
+  try { session = JSON.parse(get(sessionStorage, `uei:session:${platformId}`) || "null"); } catch {}
+  if (!session || !session.id || Date.now() - Number(session.lastSeen || 0) > 30 * 60 * 1000) session = { id: id(), lastSeen: Date.now() };
+  session.lastSeen = Date.now();
+  put(sessionStorage, `uei:session:${platformId}`, JSON.stringify(session));
+
+  const state = { startedAt: Date.now(), maxScroll: 0, clicks: 0, outboundClicks: 0, ended: false };
+  const connection = () => {
+    const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    return c ? { type: c.effectiveType || c.type || null, downlink: c.downlink ?? null, rtt: c.rtt ?? null, saveData: !!c.saveData } : null;
+  };
+  const timezone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } };
+  const base = (type, data, extra) => ({
+    platformId, platformName, platformType, eventType: type, eventId: id(), sessionId: session.id, visitorId,
+    timestamp: new Date().toISOString(), pageUrl: location.href, path: location.pathname + location.search,
+    title: document.title || "", referrer: document.referrer || "", language: navigator.language || "",
+    timezone: timezone(), screen: { width: screen.width || 0, height: screen.height || 0, devicePixelRatio: devicePixelRatio || 1, colorDepth: screen.colorDepth || 0 },
+    viewport: { width: innerWidth || 0, height: innerHeight || 0 }, connection: connection(),
+    durationMs: Math.max(0, Date.now() - state.startedAt), maxScroll: state.maxScroll, clicks: state.clicks,
+    outboundClicks: state.outboundClicks, data: data || {}, metadata: { sdk: "universal-event-insights-js", visibility: document.visibilityState, ...(extra || {}) }
+  });
+
+  function send(type, data, opts = {}) {
+    if (state.ended && type !== "pageleave") return;
+    const body = JSON.stringify(base(type, data, opts.metadata));
+    const endpoint = `${worker}/v1/events`;
+    if (opts.keepalive && navigator.sendBeacon) {
+      try { if (navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }))) return; } catch {}
+    }
+    fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body, mode: "cors", credentials: "omit", keepalive: !!opts.keepalive }).catch(() => {});
+  }
+
+  function updateScroll() {
+    const d = document.documentElement;
+    const total = Math.max(1, d.scrollHeight - innerHeight);
+    state.maxScroll = Math.max(state.maxScroll, Math.min(100, Math.round((scrollY / total) * 100)));
+  }
+  function click(e) {
+    state.clicks++;
+    const a = e.target?.closest?.("a[href]");
+    if (a) { try { if (new URL(a.href, location.href).origin !== location.origin) state.outboundClicks++; } catch {} }
+  }
+  function visibility() { send(document.hidden ? "visibility" : "heartbeat", { hidden: document.hidden }); }
+  function leave() { if (state.ended) return; state.ended = true; send("pageleave", {}, { keepalive: true }); }
+
+  window.UniversalEventInsights = {
+    platformId,
+    track(type, data, extra) { send(type || "custom", data || {}, { metadata: extra || {} }); },
+    flush() { send("heartbeat", { manual: true }); }
+  };
+  window.GitHubPageInsights = window.UniversalEventInsights;
+
+  send("pageview");
+  const heartbeatMs = Math.max(15000, Number(C.heartbeatMs || 30000));
+  const timer = setInterval(() => { if (!document.hidden && !state.ended) send("heartbeat"); }, heartbeatMs);
+  addEventListener("scroll", updateScroll, { passive: true });
+  addEventListener("click", click, { capture: true, passive: true });
+  addEventListener("visibilitychange", visibility);
+  addEventListener("pagehide", leave, { capture: true });
+  addEventListener("beforeunload", leave, { capture: true });
+  addEventListener("pagehide", () => clearInterval(timer), { once: true });
 })();

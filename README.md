@@ -1,488 +1,346 @@
-# 🚀 GitHub Page Insights
+# 🌌 Universal Event Insights
 
-> **Modular, real-time analytics and visitor intelligence for GitHub Pages — powered by Cloudflare Workers + D1, with optional direct GitHub archiving.**
+[![Universal API](https://img.shields.io/badge/API-Universal%20Event%20API-45F5FF?style=for-the-badge&logo=fastapi&logoColor=white)](#-universal-event-api)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
+[![D1](https://img.shields.io/badge/Cloudflare-D1-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
+[![GitHub Archive](https://img.shields.io/badge/GitHub-Archive-181717?style=for-the-badge&logo=github&logoColor=white)](https://docs.github.com/en/rest/repos/contents)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot-229ED9?style=for-the-badge&logo=telegram&logoColor=white)](https://core.telegram.org/bots/api)
+[![No Cron](https://img.shields.io/badge/Collection-No%20Cron-56D364?style=for-the-badge)](#-architecture)
 
-[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-ready-222?logo=githubpages&logoColor=white)](https://pages.github.com/)
-[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
-[![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
-[![API](https://img.shields.io/badge/API-REST-5DF7FF)](#-http-api-reference)
-[![Architecture](https://img.shields.io/badge/Architecture-request--driven-8B6CFF)](#-architecture)
-[![License](https://img.shields.io/badge/License-open-source-56D364)](#-license)
+> **A reusable, modular, multi-platform event API for websites, GitHub Pages, dashboards, bots, mobile/web apps, APIs, automation tools, and arbitrary clients.**
 
 ---
 
-## 🧭 What is GitHub Page Insights?
+## 🧭 The Core Idea
 
-**GitHub Page Insights** is a reusable analytics platform for one or many GitHub Pages.
+This project is intentionally **not a GitHub Pages-only analytics tool**.
 
-A connected site sends telemetry to a shared Cloudflare Worker. The Worker:
-
-1. identifies the site by a dynamic `siteId`,
-2. receives browser/session/engagement data,
-3. reads additional request context from Cloudflare,
-4. stores the event in Cloudflare D1,
-5. archives the event to a GitHub repository,
-6. exposes REST endpoints for dashboards and other applications.
-
-The design is intentionally **multi-site**. You do **not** maintain a hard-coded list of projects inside the Worker.
-
-Example:
+The API has one universal identity concept:
 
 ```text
-my-portfolio
-imdb-showcase
-dual-ping-monitor
-documentation
-experimental-project
+platformId
 ```
 
-All of them can use the same Worker:
+A platform can be anything:
+
+```text
+github-pages
+website
+telegram-bot
+discord-bot
+mobile-app
+desktop-app
+saas-api
+internal-tool
+webhook-source
+iot-device
+cli-client
+crm
+shop
+custom-service
+```
+
+A client sends an event to the same Worker:
+
+```http
+POST /v1/events
+```
+
+with at minimum:
+
+```json
+{
+  "platformId": "my-platform"
+}
+```
+
+The Worker automatically creates/updates the platform and stores the event under its own namespace.
+
+GitHub archive example:
+
+```text
+data/platforms/my-platform/events/YYYY/MM/DD/<event>.json
+```
+
+No hard-coded project list is required.
+
+---
+
+# 🚀 Current Service
+
+## Worker
 
 ```text
 https://github-page-insights-worker.game-developer-mb.workers.dev
 ```
 
----
+## Collector
 
-# ✨ Features
+```text
+POST https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
+```
 
-### 📊 Analytics
+Compatibility aliases are also available:
 
-- Page views
-- Sessions
-- Visitors
-- Session duration
-- Heartbeats
-- Page leave
-- Visibility changes
-- Scroll depth
-- Click counters
-- Outbound click tracking
-- Event types
-- Top pages
-- Traffic sources / referrer
-- Language
-- Time zone
-
-### 🖥️ Client intelligence
-
-- Browser family
-- Operating system
-- Device class
-- User agent
-- Screen size
-- Viewport size
-- Device pixel ratio
-- Color depth
-- Browser connection hints
-
-### 🌍 Cloudflare request intelligence
-
-When Cloudflare exposes the corresponding metadata for a request:
-
-- Raw client IP
-- Country
-- Region
-- City
-- Continent
-- Cloudflare colo
-- ASN
-- ASN organization
-- Latitude / longitude
-- Postal code
-- Metro code
-- TLS version
-- Client TCP RTT
-- Client QUIC RTT
-
-### ⚡ Platform
-
-- Request-driven architecture
-- No Cron required for collection
-- No Scheduled Worker required
-- Dynamic `siteId`
-- Automatic site creation in D1
-- Automatic GitHub archive path creation
-- D1-backed statistics
-- GitHub archive
-- System health endpoint
-- Detailed Worker logs
-- CORS support
-- Payload validation
-- Path traversal protection
-- Request IDs for diagnostics
+```text
+POST /v1/collect
+POST /collect
+```
 
 ---
 
 # 🏗️ Architecture
 
 ```text
-┌──────────────────────────────┐
-│        GitHub Page           │
-│                              │
-│  analytics.js                │
-│       │                      │
-│       │ POST /collect        │
-└───────┼──────────────────────┘
-        │
-        ▼
-┌──────────────────────────────┐
-│      Cloudflare Worker       │
-│                              │
-│  validate                    │
-│  normalize                   │
-│  enrich with CF metadata     │
-│  identify site/session/etc.  │
-└──────────┬───────────┬───────┘
-           │           │
-           ▼           ▼
-   ┌────────────┐  ┌───────────────┐
-   │ Cloudflare │  │ GitHub REST   │
-   │ D1         │  │ Contents API  │
-   │            │  │               │
-   │ real-time  │  │ long-term     │
-   │ analytics  │  │ archive       │
-   └────────────┘  └───────────────┘
-           │
-           ▼
-   ┌────────────────────┐
-   │ Dashboard / Clients│
-   │                    │
-   │ /api/sites         │
-   │ /api/overview      │
-   │ /api/site/...      │
-   │ /api/stats         │
-   │ /api/system-health │
-   └────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                        ANY CLIENT                            │
+│                                                              │
+│ Website / GitHub Page / Mobile / Bot / API / App / Script    │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               │ POST /v1/events
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│                CLOUDFLARE WORKER                             │
+│                                                              │
+│ validation → normalization → request metadata → routing     │
+└───────────────┬──────────────────────────┬───────────────────┘
+                │                          │
+                ▼                          ▼
+      ┌──────────────────┐        ┌────────────────────────┐
+      │ Cloudflare D1    │        │ GitHub REST API        │
+      │                  │        │                        │
+      │ live query/data  │        │ human-readable archive │
+      └────────┬─────────┘        └───────────┬────────────┘
+               │                              │
+               └──────────────┬───────────────┘
+                              ▼
+                 ┌────────────────────────────┐
+                 │ Dashboard / Other Clients  │
+                 │                            │
+                 │ REST API                   │
+                 │ JSON                       │
+                 │ Health                      │
+                 └────────────────────────────┘
+                              │
+                              └─────────────► Telegram admin alerts
 ```
 
-### Why D1 + GitHub?
+### Design principles
 
-D1 is used for fast relational analytics and live dashboard queries.
-
-GitHub is used as a persistent, browsable archive of individual event JSON files.
-
-This means the dashboard does not need to scan the Git repository for every statistic.
+- **Universal:** not tied to GitHub Pages.
+- **Dynamic:** new platforms appear automatically.
+- **Request-driven:** collection works without Cron or Scheduled Triggers.
+- **Modular:** collector, analytics, GitHub archive, dashboard and Telegram are separate modules.
+- **Machine-readable:** `/v1/schema` exposes the integration contract.
+- **AI-friendly:** this README documents the exact flow an AI agent should follow.
 
 ---
 
-# 🌐 Worker URL
+# 🧩 Platform Model
 
-Current deployed Worker:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev
-```
-
-Base URL:
+Every event belongs to:
 
 ```text
-https://github-page-insights-worker.game-developer-mb.workers.dev
+platformId
+platformName
+platformType
 ```
+
+Example:
+
+```json
+{
+  "platformId": "discord-bot",
+  "platformName": "My Discord Bot",
+  "platformType": "bot"
+}
+```
+
+Another:
+
+```json
+{
+  "platformId": "shop-api",
+  "platformName": "Shop API",
+  "platformType": "api"
+}
+```
+
+The Worker does not need to know in advance what these platforms are.
 
 ---
 
-# ☁️ Cloudflare Configuration
+# 🔐 Cloudflare Configuration
 
-## Required D1 Binding
+## Required D1 binding
 
-Worker binding:
+Create a D1 database and bind it to the Worker with:
 
 ```text
 Binding type: D1 Database
-Variable: DB
-Database: github-page-insights
+Variable name: DB
 ```
 
-The Worker expects:
+The Worker accesses it as:
 
 ```javascript
 env.DB
 ```
 
-## Required Variables
+Cloudflare documents the Worker D1 binding pattern and prepared statements here:
+
+- https://developers.cloudflare.com/d1/worker-api/
+- https://developers.cloudflare.com/d1/worker-api/prepared-statements/
+
+## Required GitHub variables
 
 ```text
 GITHUB_OWNER=mehrdadmb2
 GITHUB_REPO=github-page-insights
 GITHUB_BRANCH=main
+GITHUB_ARCHIVE_ENABLED=true
 ```
 
-## Required Secrets
+## Required secrets
 
 ```text
-GITHUB_TOKEN=<fine-grained GitHub PAT>
-ADMIN_KEY=<private admin key>
+GITHUB_TOKEN
 ```
 
-### GitHub token recommendation
-
-For the repository:
+Optional Telegram secrets/values:
 
 ```text
-mehrdadmb2/github-page-insights
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
 ```
 
-grant the Worker only the required repository access.
+Optional configuration values:
 
-For GitHub Contents API writes, the token must have repository contents write permission.
+```text
+TELEGRAM_ENABLED=true
+TELEGRAM_NOTIFY_MODE=visitor
+REQUIRE_PLATFORM_KEY=false
+DEBUG=false
+```
 
-**Never put `GITHUB_TOKEN` or `ADMIN_KEY` inside `docs/`, HTML, frontend JavaScript, or browser-exposed configuration.**
+Cloudflare recommends storing sensitive credentials such as API tokens as Worker Secrets rather than exposing them in frontend code.
+
+Official reference:
+
+https://developers.cloudflare.com/workers/configuration/secrets/
 
 ---
 
-# 🗄️ D1 Schema
+# 🗄️ D1 Database
 
-The current analytics database contains three main tables:
+The current universal schema uses these tables:
 
 ```text
-sites
+platforms
+platform_visitors
+platform_sessions
 events
-visitor_sessions
+notification_log
 ```
 
-## `sites`
-
-One logical record per `siteId`.
-
-Important fields:
+Full schema:
 
 ```text
-site_id
-site_name
-first_seen
-last_seen
-views
-unique_visitors
-sessions
+db/schema-v7.sql
 ```
 
-## `events`
+### Why `payload_json` exists
 
-One telemetry event per request.
+The relational columns cover common analytics fields, while `payload_json` preserves the original arbitrary JSON payload.
 
-Important fields:
+This is what makes the API suitable for applications that send custom business data.
 
-```text
-id
-received_at
-event_type
-site_id
-site_name
-session_id
-visitor_id
-
-page_url
-path
-title
-
-referrer
-referrer_host
-
-language
-timezone
-
-country
-region
-city
-continent
-colo
-asn
-
-ip
-ip_hash
-
-user_agent
-browser
-os
-device
-
-screen_width
-screen_height
-viewport_width
-viewport_height
-
-duration_ms
-max_scroll
-clicks
-outbound_clicks
-
-exported
-```
-
-## `visitor_sessions`
-
-Session aggregation:
-
-```text
-site_id
-session_id
-visitor_id
-first_seen
-last_seen
-duration_ms
-views
-max_scroll
-```
-
----
-
-# 🔌 Connect Any GitHub Page
-
-The recommended integration is the repository's `analytics.js`.
-
-Example:
-
-```html
-<meta
-  name="page-insights-site-id"
-  content="my-project"
->
-
-<meta
-  name="page-insights-site-name"
-  content="My Project"
->
-
-<script
-  src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"
-></script>
-```
-
-For this repository's own dashboard, the deployed file is intended to be served from its GitHub Pages site.
-
-Example:
-
-```html
-<script
-  src="https://mehrdadmb2.github.io/github-page-insights/analytics.js"
-></script>
-```
-
-### Recommended placement
-
-Place the two `<meta>` tags and the `<script>` inside `<head>` or immediately before `</body>`.
-
----
-
-# 🆔 `siteId` Rules
-
-`siteId` is the primary logical identifier.
-
-Recommended examples:
-
-```text
-my-portfolio
-imdb-showcase
-dual-ping-monitor
-docs
-project-2026
-experimental-dashboard
-```
-
-Use a **stable identifier**.
-
-Do not use values that change every deployment.
-
-The Worker normalizes the identifier and rejects unsafe path patterns.
-
-Examples of unsafe values:
-
-```text
-../secret
-../../config
-.github
-.git
-```
-
-`siteName` is display metadata and does not define filesystem paths.
-
----
-
-# 🔄 Dynamic Site Registration
-
-You do not pre-register sites inside Worker code.
-
-A Page simply sends:
+Example custom event:
 
 ```json
 {
-  "siteId": "new-project",
-  "siteName": "New Project"
+  "platformId": "crm",
+  "eventType": "custom",
+  "data": {
+    "customerId": "C-1020",
+    "action": "opened-invoice",
+    "invoiceTotal": 125000
+  }
 }
 ```
 
-The Worker creates the corresponding D1 site record automatically.
-
-The GitHub archive path becomes:
-
-```text
-data/sites/new-project/
-```
-
-This works without modifying the Worker for every new site.
+The Worker can still analyze standard fields while preserving the complete event payload.
 
 ---
 
-# 📡 Collector API
+# 📡 Universal Event API
 
-## `POST /collect`
+## Primary endpoint
 
-Public ingestion endpoint.
-
-Full endpoint:
-
-```text
-POST https://github-page-insights-worker.game-developer-mb.workers.dev/collect
+```http
+POST /v1/events
 ```
 
-Header:
+Full URL:
+
+```text
+https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
+```
+
+Content type:
 
 ```http
 Content-Type: application/json
 ```
 
-The endpoint accepts JSON telemetry.
+The endpoint is intentionally public by default.
 
 ---
 
-## Minimal Payload
+# ✅ Minimum Event
+
+Only one business field is mandatory:
 
 ```json
 {
-  "siteId": "my-project",
-  "siteName": "My Project",
-  "eventType": "pageview",
-  "sessionId": "session-123",
-  "visitorId": "visitor-123",
-  "pageUrl": "https://example.github.io/project/",
-  "path": "/project/",
-  "title": "My Project"
+  "platformId": "my-platform"
 }
 ```
 
+Everything else can be supplied when relevant.
+
+If `visitorId` is omitted, the Worker derives a deterministic visitor identifier from request information when possible.
+
+If `sessionId` is omitted, the Worker creates a stable time-bucketed session identifier for that platform/visitor combination.
+
+For best control, production clients should send their own stable `visitorId` and `sessionId`.
+
 ---
 
-## Recommended Payload
+# ⭐ Recommended Event
 
 ```json
 {
-  "siteId": "my-project",
-  "siteName": "My Project",
+  "platformId": "my-platform",
+  "platformName": "My Platform",
+  "platformType": "web",
 
   "eventType": "pageview",
-  "eventId": "client-event-id",
+  "eventId": "client-generated-event-id",
 
   "sessionId": "session-123",
   "visitorId": "visitor-123",
 
-  "timestamp": "2026-09-10T12:00:00.000Z",
+  "timestamp": "2026-09-21T11:00:00.000Z",
 
-  "pageUrl": "https://example.github.io/project/",
-  "path": "/project/",
-  "title": "My Project",
+  "pageUrl": "https://example.com/dashboard",
+  "path": "/dashboard",
+  "title": "Dashboard",
 
-  "referrer": "https://github.com/",
+  "referrer": "https://google.com/",
+
   "language": "en-US",
   "timezone": "Asia/Baku",
 
@@ -494,34 +352,39 @@ The endpoint accepts JSON telemetry.
   },
 
   "viewport": {
-    "width": 1440,
-    "height": 860
+    "width": 1500,
+    "height": 900
   },
 
   "connection": {
     "type": "4g",
-    "downlink": 20,
+    "downlink": 25,
     "rtt": 40,
     "saveData": false
   },
 
   "durationMs": 125000,
-  "maxScroll": 86,
-  "clicks": 7,
+  "maxScroll": 84,
+  "clicks": 9,
   "outboundClicks": 2,
 
+  "data": {
+    "action": "opened-dashboard",
+    "section": "reports"
+  },
+
   "metadata": {
-    "source": "custom-client",
-    "version": "1.0.0"
+    "sdk": "my-client",
+    "clientVersion": "4.2.1"
   }
 }
 ```
 
 ---
 
-# 🧩 Supported Event Types
+# 🧾 Supported Event Types
 
-The Worker accepts:
+Built-in event types include:
 
 ```text
 pageview
@@ -531,753 +394,221 @@ visibility
 click
 outbound_click
 scroll
+request
+login
+logout
+purchase
 error
 custom
 ```
 
-Unknown event types are normalized to:
+Custom event categories are allowed through:
 
 ```text
 custom
 ```
 
----
-
-# ✅ Successful `/collect` Response
-
-A successful event returns:
-
-```http
-201 Created
-```
-
-Example:
+and your application-specific data should go inside:
 
 ```json
 {
-  "ok": true,
-  "accepted": true,
-  "version": "5.0.0",
-
-  "requestId": "request-id",
-
-  "eventId": "event-id",
-
-  "siteId": "my-project",
-
-  "eventType": "pageview",
-
-  "stored": {
-    "d1": true,
-    "github": true
-  },
-
-  "d1": {
-    "newVisitor": true,
-    "newSession": true
-  },
-
-  "github": {
-    "status": 201,
-    "path": "data/sites/my-project/events/2026/09/10/example.json",
-    "commitSha": "commit-sha",
-    "fileSha": "file-sha"
-  },
-
-  "receivedAt": "2026-09-10T12:00:00.000Z",
-
-  "elapsedMs": 500
+  "data": {}
 }
 ```
 
-### Important
-
-If:
-
-```json
-"stored": {
-  "d1": true,
-  "github": false
-}
-```
-
-the event was successfully inserted into D1, but the GitHub archive operation failed.
-
-Use the returned:
-
-```text
-requestId
-eventId
-details
-```
-
-to diagnose the Worker logs.
+This avoids polluting the core API contract with application-specific columns.
 
 ---
 
-# 🛠️ Example: Send Data With `fetch`
+# 📤 Sending Data Examples
+
+## JavaScript
 
 ```javascript
 await fetch(
-  "https://github-page-insights-worker.game-developer-mb.workers.dev/collect",
+  "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events",
   {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      siteId: "my-project",
-      siteName: "My Project",
-
+      platformId: "my-web-app",
+      platformName: "My Web App",
+      platformType: "web",
       eventType: "pageview",
-
       sessionId: "session-123",
       visitorId: "visitor-123",
-
-      timestamp: new Date().toISOString(),
-
       pageUrl: location.href,
-      path: location.pathname + location.search,
+      path: location.pathname,
       title: document.title,
+      timestamp: new Date().toISOString(),
+      data: {
+        section: "home"
+      }
+    })
+  }
+);
+```
 
-      referrer: document.referrer,
+## cURL
 
-      language: navigator.language,
-
-      timezone:
-        Intl.DateTimeFormat()
-          .resolvedOptions()
-          .timeZone
+```bash
+curl -X POST \
+  "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platformId": "my-api",
+    "platformName": "My API",
+    "platformType": "api",
+    "eventType": "request",
+    "data": {
+      "route": "/v1/orders",
+      "method": "GET",
+      "status": 200
     }
-  }
-);
+  }'
+```
+
+## Python
+
+```python
+import requests
+
+url = "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events"
+
+payload = {
+    "platformId": "my-python-app",
+    "platformName": "My Python App",
+    "platformType": "script",
+    "eventType": "custom",
+    "data": {
+        "action": "job-completed",
+        "jobId": "JOB-101",
+        "durationMs": 2800
+    }
+}
+
+response = requests.post(
+    url,
+    json=payload,
+    timeout=15,
+)
+
+print(response.status_code)
+print(response.json())
+```
+
+## PHP
+
+```php
+<?php
+
+$url = 'https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events';
+
+$payload = [
+    'platformId' => 'my-php-app',
+    'platformName' => 'My PHP App',
+    'platformType' => 'backend',
+    'eventType' => 'request',
+    'data' => [
+        'route' => '/checkout',
+        'status' => 200
+    ]
+];
+
+$ch = curl_init($url);
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+    CURLOPT_POSTFIELDS => json_encode($payload),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 15,
+]);
+
+$result = curl_exec($ch);
+curl_close($ch);
+
+echo $result;
 ```
 
 ---
 
-# 🛰️ Recommended Browser Integration
+# 📥 Successful Response
 
-The bundled:
-
-```text
-docs/analytics.js
-```
-
-automatically tracks:
-
-```text
-pageview
-heartbeat
-pageleave
-visibility
-scroll milestones
-click counters
-outbound clicks
-session ID
-visitor ID
-duration
-screen
-viewport
-language
-timezone
-referrer
-connection hints
-```
-
-Once installed, no custom `fetch()` is required for basic tracking.
-
----
-
-# 🧪 Custom Events From a Connected Page
-
-The analytics client exposes:
-
-```javascript
-window.GitHubPageInsights
-```
-
-You can send a custom event:
-
-```javascript
-window.GitHubPageInsights.track(
-  "custom",
-  {
-    action: "opened-command-menu",
-    section: "dashboard"
-  }
-);
-```
-
-Another example:
-
-```javascript
-window.GitHubPageInsights.track(
-  "custom",
-  {
-    action: "download",
-    file: "report.pdf"
-  }
-);
-```
-
-You can also flush a heartbeat manually:
-
-```javascript
-window.GitHubPageInsights.flush();
-```
-
----
-
-# 📈 REST API
-
-The Worker exposes a set of read APIs.
-
----
-
-## `GET /api/sites`
-
-Returns all sites known to D1.
+A normal successful event returns:
 
 ```http
-GET /api/sites
+201 Created
 ```
 
-Example:
+Typical response:
 
 ```json
 {
   "ok": true,
-  "sites": [
-    {
-      "siteId": "imdb-showcase",
-      "siteName": "IMDb Showcase",
-      "firstSeen": "2026-09-10T10:00:00.000Z",
-      "lastSeen": "2026-09-10T12:00:00.000Z",
-      "views": 240,
-      "uniqueVisitors": 83,
-      "sessions": 97
-    }
-  ]
-}
-```
-
-This endpoint is the recommended way for a dashboard or AI client to discover the available `siteId` values.
-
----
-
-# 🌐 `GET /api/overview`
-
-Global analytics across all sites.
-
-```http
-GET /api/overview?days=7
-```
-
-or:
-
-```http
-GET /api/overview?days=30
-```
-
-or:
-
-```http
-GET /api/overview?days=all
-```
-
-Returns:
-
-- total views
-- unique visitors
-- sessions
-- average duration
-- average scroll
-- today statistics
-- daily traffic
-- countries
-- browsers
-- operating systems
-- devices
-- IP rankings
-- event types
-- top pages
-
----
-
-# 🎯 `GET /api/site/<siteId>`
-
-Site-specific analytics.
-
-Example:
-
-```http
-GET /api/site/imdb-showcase?days=7
-```
-
-or:
-
-```http
-GET /api/site/imdb-showcase?days=all
-```
-
-The response includes:
-
-```text
-views
-uniqueVisitors
-sessions
-avgDurationMs
-avgScroll
-
-today
-
-last7Days
-series
-
-devices
-topPages
-recentVisits
-
-countries
-browsers
-operatingSystems
-ips
-eventTypes
-```
-
----
-
-# 🔁 `GET /api/stats`
-
-Compatibility endpoint.
-
-Without a site:
-
-```http
-GET /api/stats?days=7
-```
-
-With a site:
-
-```http
-GET /api/stats?site=imdb-showcase&days=7
-```
-
-When `site` is provided, it behaves like the site analytics endpoint.
-
----
-
-# ❤️ System Health
-
-Basic health:
-
-```http
-GET /health
-```
-
-Detailed health center:
-
-```http
-GET /api/system-health
-```
-
-Alias:
-
-```http
-GET /api/health
-```
-
-The detailed endpoint checks:
-
-### Worker
-
-```text
-Worker reachability
-```
-
-### D1
-
-```text
-D1 configured
-D1 reachable
-required tables
-required event columns
-record counts
-latest event
-```
-
-### GitHub
-
-```text
-GitHub credentials configured
-repository reachable
-repository identity
-branch
-rate-limit information
-```
-
-### Telemetry
-
-```text
-last telemetry time
-latest siteId
-latest event type
-telemetry age
-fresh / stale / waiting
-```
-
-### Configuration
-
-```text
-D1 binding
-GitHub token
-GitHub owner
-GitHub repository
-GitHub branch
-Admin key configuration
-```
-
-Example:
-
-```json
-{
-  "ok": true,
-  "overall": "healthy",
-  "checks": {
-    "worker": {
-      "status": "ok"
-    },
-    "database": {
-      "status": "ok"
-    },
-    "github": {
-      "status": "ok"
-    },
-    "telemetry": {
-      "status": "ok"
-    },
-    "configuration": {
-      "status": "ok"
-    }
+  "accepted": true,
+  "version": "7.0.0",
+  "requestId": "...",
+  "eventId": "...",
+  "platformId": "my-platform",
+  "eventType": "pageview",
+  "stored": {
+    "d1": true,
+    "github": true
+  },
+  "d1": {
+    "newVisitor": true,
+    "newSession": true
+  },
+  "github": {
+    "ok": true,
+    "status": 201,
+    "path": "data/platforms/my-platform/events/2026/09/21/...json",
+    "commitSha": "...",
+    "fileSha": "..."
   }
 }
 ```
 
----
-
-# 🔐 Admin Events API
-
-Detailed raw event querying is protected by `ADMIN_KEY`.
-
-Endpoint:
-
-```http
-GET /api/admin/events
-```
-
-Header:
-
-```http
-X-Admin-Key: YOUR_ADMIN_KEY
-```
-
-Optional site filter:
-
-```http
-GET /api/admin/events?site=imdb-showcase
-```
-
-Optional limit:
-
-```http
-GET /api/admin/events?site=imdb-showcase&limit=100
-```
-
-Maximum limit:
-
-```text
-500
-```
-
-### Never expose `ADMIN_KEY` in frontend code.
+The response contains a `requestId` specifically so the same request can be found in Cloudflare logs.
 
 ---
 
-# 📦 GitHub Archive Structure
+# 🧠 Universal Data Model
 
-Every accepted event is archived as its own JSON file.
+The Worker normalizes the request into common dimensions:
 
-Example:
-
-```text
-data/
-└── sites/
-    └── imdb-showcase/
-        └── events/
-            └── 2026/
-                └── 09/
-                    └── 10/
-                        ├── 2026-09-10T12-01-10-123Z_xxx.json
-                        ├── 2026-09-10T12-01-20-456Z_xxx.json
-                        └── ...
-```
-
-Another site:
+### Identity
 
 ```text
-data/
-└── sites/
-    └── dual-ping-monitor/
-        └── events/
-            └── ...
-```
-
-The Worker builds the path dynamically from `siteId`.
-
-You do not manually create folders.
-
----
-
-# 🔎 How Another Site Finds Its Own Data
-
-Suppose your site sends:
-
-```json
-{
-  "siteId": "my-project"
-}
-```
-
-First discover all sites:
-
-```http
-GET /api/sites
-```
-
-Find:
-
-```json
-{
-  "siteId": "my-project",
-  "siteName": "My Project"
-}
-```
-
-Then request:
-
-```http
-GET /api/site/my-project?days=30
-```
-
-This is the preferred approach for external dashboards.
-
-For raw archived events, inspect:
-
-```text
-data/sites/my-project/
-```
-
-in the GitHub repository.
-
----
-
-# 🤖 AI INTEGRATION GUIDE
-
-This section is intentionally explicit so that another AI agent can consume this repository as a machine-readable integration contract.
-
-## AI task: connect a new website
-
-Tell the AI:
-
-> Use the GitHub Page Insights Worker as a telemetry collector. Do not create another analytics backend. Use the existing Worker URL and preserve the site's stable `siteId`.
-
-Worker:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev
-```
-
-Collector:
-
-```text
-POST /collect
-```
-
-Full URL:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/collect
-```
-
-For the target site define:
-
-```text
-siteId
-siteName
-```
-
-Example:
-
-```text
-siteId = "my-new-project"
-siteName = "My New Project"
-```
-
-Then install:
-
-```html
-<meta
-  name="page-insights-site-id"
-  content="my-new-project"
->
-
-<meta
-  name="page-insights-site-name"
-  content="My New Project"
->
-
-<script
-  src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"
-></script>
-```
-
-If custom telemetry is required, send JSON to:
-
-```text
-POST /collect
-```
-
-with:
-
-```json
-{
-  "siteId": "my-new-project",
-  "siteName": "My New Project",
-  "eventType": "custom",
-  "sessionId": "stable-session-id",
-  "visitorId": "stable-visitor-id",
-  "metadata": {
-    "action": "example"
-  }
-}
-```
-
-## AI task: read analytics for a site
-
-First:
-
-```http
-GET /api/sites
-```
-
-Find the target `siteId`.
-
-Then:
-
-```http
-GET /api/site/<siteId>?days=7
-```
-
-Example:
-
-```http
-GET /api/site/my-new-project?days=30
-```
-
-Use fields from the returned object directly.
-
-Do not guess field names.
-
-## AI task: compare multiple sites
-
-1. Call `/api/sites`.
-2. Collect the required `siteId` values.
-3. Request `/api/site/<siteId>?days=<N>` for each site.
-4. Compare:
-   - views
-   - uniqueVisitors
-   - sessions
-   - avgDurationMs
-   - avgScroll
-   - devices
-   - countries
-   - browsers
-   - operatingSystems
-   - topPages
-   - ips
-   - eventTypes
-
-## AI task: identify a site's raw events
-
-1. Determine `siteId`.
-2. Prefer the site analytics API for aggregates.
-3. Use the GitHub path:
-
-```text
-data/sites/<siteId>/
-```
-
-for archive-level data.
-
-4. Each event file contains the archived event object.
-
-## AI task: add analytics to an existing page
-
-Do **not** change the Worker's GitHub credentials.
-
-Do **not** put:
-
-```text
-GITHUB_TOKEN
-ADMIN_KEY
-```
-
-in the target repository's frontend.
-
-Only add the public collector integration.
-
----
-
-# 🧠 AI Integration Contract
-
-A consuming AI should treat the following as immutable unless the repository version explicitly changes:
-
-```text
-Worker base URL
-POST /collect
-GET /api/sites
-GET /api/overview
-GET /api/site/<siteId>
-GET /api/stats
-GET /api/system-health
-```
-
-### Required collector identity
-
-```text
-siteId
-siteName
-```
-
-### Recommended session fields
-
-```text
-sessionId
+platformId
+platformName
+platformType
+eventId
 visitorId
+sessionId
 ```
 
-### Recommended page fields
+### Web/page context
 
 ```text
 pageUrl
 path
 title
 referrer
+referrerHost
 ```
 
-### Recommended browser fields
+### Client context
 
 ```text
+userAgent
+browser
+browserVersion
+os
+osVersion
+device
 language
 timezone
 screen
@@ -1285,7 +616,28 @@ viewport
 connection
 ```
 
-### Recommended engagement fields
+### Network / Cloudflare context
+
+```text
+ip
+ipHash
+country
+region
+city
+continent
+colo
+asn
+asOrganization
+latitude
+longitude
+postalCode
+metroCode
+tlsVersion
+clientTcpRtt
+clientQuicRtt
+```
+
+### Engagement
 
 ```text
 durationMs
@@ -1294,291 +646,1119 @@ clicks
 outboundClicks
 ```
 
-### Custom application data
+### Arbitrary application data
 
-Use:
+```text
+data
+payload
+metadata
+```
+
+`data` is normalized into `data_json` while the complete submitted object is preserved in `payload_json`. The normalized event archive also exposes the parsed custom `data` object for convenient downstream consumption.
+
+---
+
+# 🌍 Raw IP
+
+Raw client IP is stored when Cloudflare supplies it to the Worker.
+
+The primary field is:
+
+```text
+ip
+```
+
+An additional deterministic fingerprint remains available as:
+
+```text
+ipHash
+```
+
+The raw IP can be used by the dashboard and Telegram notification module.
+
+Review applicable privacy and data-protection requirements before deploying this publicly.
+
+---
+
+# 🗂️ Automatic GitHub Organization
+
+A platform automatically receives its own GitHub namespace.
+
+For:
+
+```text
+platformId = imdb-showcase
+```
+
+archive path:
+
+```text
+data/platforms/imdb-showcase/events/YYYY/MM/DD/<event>.json
+```
+
+For:
+
+```text
+platformId = telegram-bot
+```
+
+archive path:
+
+```text
+data/platforms/telegram-bot/events/YYYY/MM/DD/<event>.json
+```
+
+For:
+
+```text
+platformId = my-api
+```
+
+archive path:
+
+```text
+data/platforms/my-api/events/YYYY/MM/DD/<event>.json
+```
+
+No manual folder creation is required.
+
+The Worker sanitizes platform IDs before using them as paths.
+
+---
+
+# 🔎 Finding a Platform's Data
+
+## Step 1 — discover platforms
+
+```http
+GET /v1/platforms
+```
+
+Example:
 
 ```json
 {
-  "metadata": {
-    "your": "data"
+  "ok": true,
+  "platforms": [
+    {
+      "platformId": "imdb-showcase",
+      "platformName": "IMDb Showcase",
+      "platformType": "web",
+      "totalEvents": 120,
+      "totalPageviews": 80,
+      "totalSessions": 70,
+      "totalVisitors": 55,
+      "lastSeen": "2026-09-21T11:00:00.000Z"
+    }
+  ]
+}
+```
+
+## Step 2 — request platform analytics
+
+```http
+GET /v1/platforms/imdb-showcase?days=30
+```
+
+## Step 3 — request platform raw events
+
+```http
+GET /v1/platforms/imdb-showcase/events?days=30&limit=100
+```
+
+## Step 4 — inspect GitHub archive
+
+```text
+data/platforms/imdb-showcase/
+```
+
+This four-step workflow is the recommended discovery pattern for external applications and AI agents.
+
+---
+
+# 📊 Global Overview
+
+```http
+GET /v1/overview?days=7
+```
+
+Supported values:
+
+```text
+1
+7
+30
+90
+all
+```
+
+Returns global aggregates across all platforms.
+
+---
+
+# 🎯 Platform Analytics
+
+```http
+GET /v1/platforms/<platformId>?days=7
+```
+
+Returns:
+
+```text
+views
+uniqueVisitors
+sessions
+events
+avgDurationMs
+avgScroll
+daily
+countries
+browsers
+operatingSystems
+devices
+ips
+topPages
+recentEvents
+```
+
+---
+
+# 🧾 Raw Platform Events
+
+```http
+GET /v1/platforms/<platformId>/events?days=7&limit=100
+```
+
+`limit` is capped by the Worker.
+
+Each returned event is suitable for custom processing, export, AI analysis or another application.
+
+---
+
+# 🩺 System Health API
+
+Basic:
+
+```http
+GET /v1/health
+```
+
+Detailed:
+
+```http
+GET /v1/health?probe=github
+```
+
+Aliases:
+
+```text
+/health
+/api/health
+/api/system-health
+```
+
+The health response can inspect:
+
+```text
+Worker
+D1
+expected tables
+expected event columns
+record counts
+latest event
+GitHub configuration
+GitHub repository access
+GitHub rate limit
+Telegram configuration
+telemetry freshness
+```
+
+The dashboard uses the same endpoint to display its health center.
+
+---
+
+# 🧬 Machine-Readable API Schema
+
+The Worker exposes:
+
+```http
+GET /v1/schema
+```
+
+The endpoint returns a machine-readable contract containing:
+
+```text
+contractVersion
+identityField
+genericPayload
+dynamicFolders
+telegramNotification
+endpoints
+requiredForCollect
+recommendedForCollect
+eventTypes
+```
+
+This endpoint is intentionally useful for AI agents, SDK generators and external tooling.
+
+---
+
+# 🤖 Telegram Integration
+
+Telegram is an optional module of the same Worker.
+
+It can:
+
+- notify the admin when a new visitor uses a platform,
+- show system status,
+- list platforms,
+- show a platform summary,
+- show recent events.
+
+The Bot API is documented by Telegram:
+
+https://core.telegram.org/bots/api
+
+---
+
+# 🔔 Telegram Notification Modes
+
+Set:
+
+```text
+TELEGRAM_NOTIFY_MODE=visitor
+```
+
+Available values:
+
+```text
+off
+visitor
+session
+event
+```
+
+Recommended:
+
+```text
+visitor
+```
+
+This sends an alert for the first event observed from a new visitor identifier rather than every heartbeat.
+
+`event` sends for every eligible event and can become very noisy on active sites.
+
+---
+
+# 📨 Telegram Notification Contents
+
+The notification can include:
+
+```text
+platform
+platform id
+platform type
+event type
+time
+IP
+country
+region
+city
+ASN
+ASN organization
+device
+OS
+browser
+page
+referrer
+duration
+scroll
+clicks
+visitor ID
+session ID
+request ID
+```
+
+This module uses the same normalized event that is stored in D1 and archived in GitHub.
+
+---
+
+# 🤖 Telegram Bot Commands
+
+The same Worker exposes a Telegram webhook endpoint:
+
+```text
+POST /telegram/webhook
+```
+
+Supported admin commands include:
+
+```text
+/start
+/help
+/status
+/platforms
+/platform <platformId>
+/last <platformId>
+/whoami
+```
+
+Only the configured `TELEGRAM_ADMIN_CHAT_ID` is allowed to receive admin command responses.
+
+---
+
+# 🔗 Telegram Webhook Setup
+
+The Worker includes:
+
+```text
+GET /telegram/setup
+```
+
+This endpoint requires the same private `ADMIN_KEY` used for admin operations.
+
+Call it with:
+
+```http
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+The Worker builds its own webhook URL:
+
+```text
+https://YOUR-WORKER-DOMAIN/telegram/webhook
+```
+
+and registers it with Telegram's `setWebhook` method.
+
+Telegram's Bot API documentation specifies that `setWebhook` configures an HTTPS URL to which Telegram sends JSON-serialized updates. Telegram also documents `sendMessage` as the text-message method used by this integration.
+
+---
+
+# 🧪 Telegram Test
+
+After configuration:
+
+```text
+GET /telegram/test
+```
+
+with:
+
+```http
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+The Worker sends a test message to the configured admin chat.
+
+---
+
+# 🔐 Telegram Webhook Secret
+
+Set:
+
+```text
+TELEGRAM_WEBHOOK_SECRET=<long-random-value>
+```
+
+Telegram sends the corresponding secret in:
+
+```text
+X-Telegram-Bot-Api-Secret-Token
+```
+
+The Worker validates that header when a webhook secret is configured.
+
+---
+
+# 🗝️ Provisioning a Platform API Key
+
+If you choose to enable per-platform authentication, the admin API can provision a key hash.
+
+Endpoint:
+
+```http
+POST /v1/admin/platform-key
+```
+
+Required header:
+
+```text
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+JSON body:
+
+```json
+{
+  "platformId": "my-platform",
+  "platformName": "My Platform",
+  "platformType": "web",
+  "apiKey": "A-LONG-SECRET-KEY"
+}
+```
+
+The Worker stores only the SHA-256 hash of the platform key. Clients then send:
+
+```text
+X-Platform-Key: A-LONG-SECRET-KEY
+```
+
+This mechanism is optional and does not need to be used by public anonymous collectors.
+
+---
+
+# 🧱 Optional Platform Authentication
+
+By default:
+
+```text
+REQUIRE_PLATFORM_KEY=false
+```
+
+This means anybody can submit an event with a platform ID.
+
+This is intentional for a universal public collector.
+
+If you need stronger source authenticity, the schema contains:
+
+```text
+platforms.api_key_hash
+```
+
+and the Worker accepts:
+
+```text
+X-Platform-Key
+```
+
+or:
+
+```text
+X-API-Key
+```
+
+When:
+
+```text
+REQUIRE_PLATFORM_KEY=true
+```
+
+an event needs a valid platform key for an existing platform.
+
+Use an administrative provisioning flow or a future management API to provision keys rather than placing secrets in public frontend code.
+
+---
+
+# 🛡️ Abuse Resistance
+
+The Worker includes baseline protections:
+
+```text
+payload size limits
+URL validation
+numeric range validation
+event type normalization
+platform ID normalization
+path traversal prevention
+admin authentication
+webhook secret validation
+request IDs
+error logging
+GitHub timeouts
+Telegram timeouts
+```
+
+Because `/v1/events` is public, it is still possible for someone to submit false events.
+
+For higher security requirements, combine the Worker with Cloudflare rate limiting and authenticated per-platform keys.
+
+---
+
+# 🧯 Failure Semantics
+
+The collector separates D1 persistence from GitHub archival.
+
+### D1 succeeds, GitHub succeeds
+
+```json
+{
+  "stored": {
+    "d1": true,
+    "github": true
   }
 }
 ```
 
-Keep custom metadata reasonably small.
+### D1 succeeds, GitHub fails
 
----
-
-# 🧪 Testing
-
-## 1. Test the Worker
-
-Open:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/
-```
-
-Expected:
-
-```text
-status = online
-```
-
-## 2. Test health
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/health
-```
-
-## 3. Test detailed health
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/api/system-health
-```
-
-Expected overall status:
-
-```text
-healthy
-```
-
-or:
-
-```text
-degraded
-```
-
-or:
-
-```text
-error
-```
-
-## 4. Test collector
-
-From a normal HTTPS page:
-
-```javascript
-fetch(
-  "https://github-page-insights-worker.game-developer-mb.workers.dev/collect",
-  {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      siteId: "test-site",
-      siteName: "Test Site",
-      eventType: "pageview",
-      sessionId: crypto.randomUUID(),
-      visitorId: crypto.randomUUID(),
-      pageUrl: location.href,
-      path: location.pathname,
-      title: document.title
-    })
+```json
+{
+  "stored": {
+    "d1": true,
+    "github": false
   }
-)
-.then(r => r.json())
-.then(console.log);
+}
 ```
 
-Expected:
+The event remains available in D1.
 
-```text
-HTTP 201
-stored.d1 = true
-stored.github = true
+The response also contains the GitHub error details and request ID for diagnostics.
+
+### D1 fails
+
+```json
+{
+  "stored": {
+    "d1": false,
+    "github": false
+  }
+}
 ```
+
+The request does not pretend that the event was stored.
 
 ---
 
-# 🐛 Troubleshooting
+# 🪵 Worker Logging
 
-## `D1_NOT_CONFIGURED`
-
-Check:
-
-```text
-Binding:
-DB
-```
-
-and ensure it points to:
-
-```text
-github-page-insights
-```
-
-## `D1_STORE_FAILED`
-
-Use the returned:
+Each request receives a unique:
 
 ```text
 requestId
-details
 ```
 
-then inspect Cloudflare Worker Logs.
+Useful log events include:
 
-Typical causes:
+```text
+REQUEST_START
+COLLECT_START
+VALIDATION_ERROR
+D1_STORE_FAILED
+GITHUB_ARCHIVE_FAILED
+TELEGRAM_NOTIFICATION_FAILED
+COLLECT_COMPLETE
+UNHANDLED_ERROR
+```
 
-- wrong D1 binding
-- schema mismatch
-- missing column
-- invalid SQL
-- deployment version mismatch
+When debugging:
 
-## `GITHUB_CONFIGURATION_MISSING`
+1. reproduce the request,
+2. copy the returned `requestId`,
+3. open Cloudflare Worker logs,
+4. search for that request ID.
 
-Check:
+---
+
+# 🎨 Included Dashboard
+
+The GitHub Pages dashboard is a visual control plane for the universal API.
+
+It includes:
+
+```text
+System health center
+Dynamic platform discovery
+Global metrics
+Platform selector
+Date range selector
+Traffic timeline
+Platform mix
+Countries
+Browsers
+Operating systems
+IP intelligence
+Recent telemetry
+Live status
+Dark / light theme
+Neon glass UI
+Responsive mobile layout
+Initial boot animation
+```
+
+The dashboard does **not** contain:
 
 ```text
 GITHUB_TOKEN
-GITHUB_OWNER
-GITHUB_REPO
-GITHUB_BRANCH
+ADMIN_KEY
+TELEGRAM_BOT_TOKEN
 ```
 
-## GitHub `401` / `403`
+It uses public read endpoints from the Worker.
 
-Check:
+---
 
-- token is valid
-- repository access is correct
-- repository contents write permission exists
-- owner/repository names are correct
-- token is stored as a Cloudflare Secret
+# 🌐 Using the Dashboard on GitHub Pages
 
-## Dashboard shows no sites
+The repository is designed to work through GitHub Pages using the `docs/` directory.
 
-Check:
+Relevant files:
 
 ```text
-/api/sites
+docs/index.html
+docs/style.css
+docs/app.js
+docs/config.js
+docs/analytics.js
+docs/logo.svg
 ```
 
-If it returns an empty list, no event has successfully reached D1 yet.
-
-Then test:
+Set GitHub Pages to deploy from:
 
 ```text
-/collect
+main / docs
+```
+
+---
+
+# 📦 Universal Browser SDK
+
+The bundled SDK is:
+
+```text
+docs/analytics.js
+```
+
+Install it on another page with:
+
+```html
+<meta name="uei-platform-id" content="my-project">
+<meta name="uei-platform-name" content="My Project">
+<meta name="uei-platform-type" content="web">
+<script src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"></script>
+```
+
+Backward-compatible GitHub Page metadata names are also recognized:
+
+```html
+<meta name="page-insights-site-id" content="my-project">
+<meta name="page-insights-site-name" content="My Project">
+```
+
+---
+
+# 🧩 SDK Custom Events
+
+After installing `analytics.js`:
+
+```javascript
+window.UniversalEventInsights.track(
+  "custom",
+  {
+    action: "opened-settings",
+    tab: "security"
+  }
+);
+```
+
+You can manually flush a heartbeat:
+
+```javascript
+window.UniversalEventInsights.flush();
+```
+
+Backward-compatible alias:
+
+```javascript
+window.GitHubPageInsights
+```
+
+---
+
+# 🧠 AI-First Integration Rules
+
+This section is the canonical integration procedure for an AI agent.
+
+## Rule 1 — understand the identity
+
+The canonical universal identity field is:
+
+```text
+platformId
+```
+
+For convenience, the collector also accepts `platform`, `platformName`, `platform_name`, or `name` and converts that value into a safe platform ID. An AI integrating a new project should prefer a stable explicit `platformId`.
+
+Never invent a new identity field such as `siteId` unless maintaining legacy compatibility.
+
+## Rule 2 — choose a stable platform ID
+
+Good:
+
+```text
+my-web-app
+telegram-bot
+inventory-api
+mobile-app
+```
+
+Bad:
+
+```text
+random-uuid-every-request
+current-timestamp
+```
+
+## Rule 3 — send events to the universal collector
+
+```text
+POST https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
+```
+
+## Rule 4 — include custom application information under `data`
+
+Good:
+
+```json
+{
+  "platformId": "inventory-api",
+  "eventType": "request",
+  "data": {
+    "route": "/items",
+    "method": "GET",
+    "status": 200
+  }
+}
+```
+
+Do not modify the Worker database schema merely to add one application-specific field when the field fits naturally in `data`.
+
+## Rule 5 — discover data through `/v1/platforms`
+
+Do not assume a platform exists.
+
+Call:
+
+```http
+GET /v1/platforms
+```
+
+Then find the requested `platformId`.
+
+## Rule 6 — use the platform endpoint for analytics
+
+```http
+GET /v1/platforms/<platformId>?days=7
+```
+
+## Rule 7 — use the platform events endpoint for raw events
+
+```http
+GET /v1/platforms/<platformId>/events?days=7&limit=100
+```
+
+## Rule 8 — use the GitHub archive for long-term file-level access
+
+```text
+data/platforms/<platformId>/events/
+```
+
+## Rule 9 — never expose secrets
+
+An AI modifying a consuming project must never add:
+
+```text
+GITHUB_TOKEN
+ADMIN_KEY
+TELEGRAM_BOT_TOKEN
+TELEGRAM_WEBHOOK_SECRET
+```
+
+to frontend/browser code.
+
+## Rule 10 — inspect `/v1/schema` when the API contract is unclear
+
+```http
+GET /v1/schema
+```
+
+The Worker is the source of truth for supported routes and event types.
+
+---
+
+# 🤖 AI Example: Connect a New Website
+
+Assume the target application is:
+
+```text
+https://example.github.io/project/
+```
+
+The AI should:
+
+### 1. Select a stable platform ID
+
+```text
+project
+```
+
+### 2. Add metadata
+
+```html
+<meta name="uei-platform-id" content="project">
+<meta name="uei-platform-name" content="Project">
+<meta name="uei-platform-type" content="web">
+```
+
+### 3. Load the SDK
+
+```html
+<script src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"></script>
+```
+
+### 4. Do not create another analytics backend
+
+The existing Worker is already the collector.
+
+### 5. Verify
+
+Call:
+
+```text
+GET /v1/platforms
 ```
 
 and confirm:
 
 ```text
-stored.d1 = true
+platformId = project
 ```
 
-## Collector works but dashboard is empty
+---
+
+# 🤖 AI Example: Connect a Telegram Bot
+
+A bot backend can send a request like:
+
+```json
+{
+  "platformId": "my-telegram-bot",
+  "platformName": "My Telegram Bot",
+  "platformType": "telegram-bot",
+  "eventType": "request",
+  "data": {
+    "command": "/start",
+    "userId": "12345"
+  }
+}
+```
+
+The bot's own service does not need to be hosted on Cloudflare.
+
+Any platform capable of making HTTPS POST requests can use the collector.
+
+---
+
+# 🤖 AI Example: Use the Data in Another Website
+
+Suppose a new dashboard wants information about:
+
+```text
+my-telegram-bot
+```
+
+The AI should call:
+
+```javascript
+const base =
+  "https://github-page-insights-worker.game-developer-mb.workers.dev";
+
+const result = await fetch(
+  `${base}/v1/platforms/my-telegram-bot?days=30`
+).then(r => r.json());
+
+console.log(result);
+```
+
+For raw events:
+
+```javascript
+const events = await fetch(
+  `${base}/v1/platforms/my-telegram-bot/events?days=30&limit=100`
+).then(r => r.json());
+```
+
+---
+
+# 🔬 AI Example: Find Its Own Data
+
+A consuming project can determine its own platform ID from configuration.
+
+Recommended sequence:
+
+```text
+1. GET /v1/platforms
+2. Filter platformId
+3. GET /v1/platforms/<platformId>?days=N
+4. GET /v1/platforms/<platformId>/events?days=N&limit=M
+5. Optionally inspect data/platforms/<platformId>/ in GitHub
+```
+
+This is better than assuming a folder exists.
+
+---
+
+# 🧪 Postman / Insomnia
+
+Request:
+
+```text
+POST
+https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
+```
+
+Header:
+
+```text
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "platformId": "postman-test",
+  "platformName": "Postman Test",
+  "platformType": "test",
+  "eventType": "custom",
+  "data": {
+    "hello": "world"
+  }
+}
+```
+
+---
+
+# ⚙️ Compatibility Routes
+
+For existing integrations, these routes remain available:
+
+```text
+POST /collect
+POST /v1/collect
+GET /health
+GET /api/health
+GET /api/system-health
+GET /api/sites
+GET /api/platforms
+GET /api/overview
+GET /api/site/<id>
+GET /api/stats
+GET /api/admin/events
+```
+
+New integrations should prefer the `/v1/*` routes.
+
+---
+
+# 🧾 Status Codes
+
+```text
+200 OK
+201 Created
+202 Accepted (for non-fatal archive failures)
+400 Bad Request
+401 Unauthorized
+404 Not Found
+405 Method Not Allowed
+413 Payload Too Large
+500 Internal Server Error
+502 Upstream archive error
+503 Dependency/configuration error
+```
+
+---
+
+# 🛠️ Troubleshooting
+
+## Dashboard is empty
 
 Check:
 
 ```text
-/api/sites
-/api/overview?days=7
-/api/site/<siteId>?days=7
+/v1/health
+/v1/platforms
+/v1/overview?days=7
 ```
 
-The frontend should consume Worker API data instead of guessing the database schema.
+If `/v1/platforms` returns zero platforms, no events have been successfully stored in D1 yet.
+
+## D1 is failing
+
+Open:
+
+```text
+Cloudflare → Worker → Logs
+```
+
+Look for:
+
+```text
+D1_STORE_FAILED
+```
+
+Use the returned `requestId`.
+
+## GitHub archive is failing
+
+Look for:
+
+```text
+GITHUB_ARCHIVE_FAILED
+```
+
+Typical causes:
+
+- invalid GitHub token
+- repository access missing
+- Contents write permission missing
+- incorrect repository owner/name
+- wrong branch
+- GitHub API error
+
+## Telegram is not notifying
+
+Check:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_ENABLED
+TELEGRAM_NOTIFY_MODE
+```
+
+Then:
+
+```text
+GET /telegram/test
+```
+
+with:
+
+```text
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+Also check:
+
+```text
+TELEGRAM_WEBHOOK_SECRET
+```
+
+if webhook commands are enabled.
 
 ---
 
-# 🌐 Browser CSP / CORS
-
-A browser can only call the Worker when the hosting page allows the connection.
-
-Typical CSP requirement:
-
-```text
-connect-src https://github-page-insights-worker.game-developer-mb.workers.dev
-```
-
-The Worker itself returns CORS headers.
-
-For local browser testing, do not run collector tests from:
-
-```text
-chrome://...
-```
-
-or other browser-internal pages.
-
-Use a normal:
-
-```text
-https://...
-```
-
-page.
-
----
-
-# 🔒 Security Model
-
-The collector endpoint is public by design.
-
-That means anyone can technically submit a telemetry event.
-
-The Worker protects the storage layer by:
-
-- normalizing `siteId`
-- rejecting unsafe site identifiers
-- never exposing GitHub credentials
-- limiting payload size
-- validating URLs
-- constraining numeric values
-- protecting the admin endpoint
-- keeping GitHub credentials server-side
-
-### Important limitation
-
-A public analytics collector is not proof of trusted identity.
-
-An attacker can submit fake analytics for a known `siteId`.
-
-If stronger site authenticity is required, add a per-site public/secret registration mechanism in a future version rather than treating `siteId` as a secret.
-
----
-
-# 🧾 Raw IP Policy
-
-This deployment intentionally stores the raw IP in:
-
-```text
-D1
-GitHub archive
-Dashboard responses
-```
-
-and also retains:
-
-```text
-ip_hash
-```
-
-The Worker does not intentionally print raw IPs in diagnostic logs.
-
-Before deploying analytics publicly, assess your legal/privacy obligations for your jurisdiction and your audience.
-
----
-
-# 📚 Repository Layout
+# 📁 Repository Structure
 
 ```text
 github-page-insights/
 │
 ├── data/
-│   └── sites/
-│       └── <siteId>/
+│   └── platforms/
+│       └── <platformId>/
 │           └── events/
-│               └── YYYY/
-│                   └── MM/
-│                       └── DD/
-│                           └── *.json
+│               └── YYYY/MM/DD/*.json
 │
 ├── docs/
 │   ├── index.html
@@ -1589,8 +1769,12 @@ github-page-insights/
 │   └── logo.svg
 │
 ├── worker/
-│   └── src/
-│       └── index.js
+│   ├── index.js
+│   ├── package.json
+│   └── wrangler.toml
+│
+├── db/
+│   └── schema-v7.sql
 │
 ├── README.md
 └── LICENSE
@@ -1598,409 +1782,169 @@ github-page-insights/
 
 ---
 
-# 🎨 Dashboard
+# 📌 Production Recommendations
 
-The included GitHub Pages dashboard is designed as a frontend control plane for the Worker/D1 system.
+For small and moderate traffic, immediate D1 storage plus per-event GitHub archive is simple and traceable.
 
-It contains:
+For very high event volume, GitHub should be treated primarily as an archive rather than the real-time datastore. D1 remains the analytics query layer.
 
-```text
-Live status
-System health
-Site explorer
-Date-range selector
-Traffic overview
-Device distribution
-Geo distribution
-Top pages
-Browser distribution
-OS distribution
-IP intelligence
-Recent visits
-Event telemetry
-```
-
-The dashboard reads analytics from the Worker APIs rather than using browser-side GitHub credentials.
-
----
-
-# 🔄 Recommended Deployment Workflow
+Recommended future scaling path:
 
 ```text
-1. Create / configure D1
-       ↓
-2. Create GitHub fine-grained token
-       ↓
-3. Store token as Cloudflare Secret
-       ↓
-4. Add DB binding
-       ↓
-5. Add GITHUB_* variables
-       ↓
-6. Deploy Worker
-       ↓
-7. Test /health
-       ↓
-8. Test /api/system-health
-       ↓
-9. Test /collect
-       ↓
-10. Verify D1
-       ↓
-11. Verify GitHub archive
-       ↓
-12. Deploy GitHub Pages dashboard
-       ↓
-13. Add analytics.js to connected projects
-```
-
----
-
-# ♻️ Adding Another Project Later
-
-You do **not** need another Worker.
-
-For example:
-
-```html
-<meta
-  name="page-insights-site-id"
-  content="project-alpha"
->
-
-<meta
-  name="page-insights-site-name"
-  content="Project Alpha"
->
-
-<script
-  src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"
-></script>
-```
-
-Then another:
-
-```html
-<meta
-  name="page-insights-site-id"
-  content="project-beta"
->
-
-<meta
-  name="page-insights-site-name"
-  content="Project Beta"
->
-
-<script
-  src="https://YOUR-DASHBOARD-DOMAIN/analytics.js"
-></script>
-```
-
-Both use:
-
-```text
-same Worker
-same D1
-same repository
-```
-
-but separate `siteId` namespaces.
-
----
-
-# 🧩 Building Your Own Dashboard
-
-Any application can use the public read endpoints.
-
-Example JavaScript:
-
-```javascript
-const WORKER =
-  "https://github-page-insights-worker.game-developer-mb.workers.dev";
-
-const sites =
-  await fetch(
-    `${WORKER}/api/sites`
-  ).then(
-    r => r.json()
-  );
-
-console.log(sites);
-```
-
-Then:
-
-```javascript
-const site =
-  await fetch(
-    `${WORKER}/api/site/imdb-showcase?days=30`
-  ).then(
-    r => r.json()
-  );
-
-console.log(site);
-```
-
----
-
-# 📦 Working With Archived GitHub Data
-
-GitHub archive data can be consumed independently from the Worker.
-
-The archive root is:
-
-```text
-data/sites/
-```
-
-A project is:
-
-```text
-data/sites/<siteId>/
-```
-
-Events are:
-
-```text
-data/sites/<siteId>/events/YYYY/MM/DD/
-```
-
-This makes the repository suitable for:
-
-- offline analysis
-- backups
-- custom scripts
-- notebooks
-- ETL pipelines
-- AI analysis
-- static reporting
-- audit/history use cases
-
----
-
-# 🧠 Practical AI Prompt
-
-When asking an AI to integrate this repository into another project, use a prompt such as:
-
-> Read the `README.md` of GitHub Page Insights before making changes. Use the existing Cloudflare Worker rather than creating a new analytics backend. Identify the target project's stable `siteId`, add the `page-insights-site-id` and `page-insights-site-name` metadata, load the public `analytics.js`, and preserve all existing project functionality. For analytics queries, use `/api/sites` to discover site IDs and `/api/site/<siteId>?days=<N>` for site-specific statistics. Never expose `GITHUB_TOKEN` or `ADMIN_KEY` to frontend code.
-
----
-
-# ❌ Do Not Do This
-
-Never put:
-
-```javascript
-const GITHUB_TOKEN = "...";
-```
-
-inside frontend code.
-
-Never send:
-
-```text
-GITHUB_TOKEN
-ADMIN_KEY
-```
-
-from a browser.
-
-Never hard-code another project's secret into:
-
-```text
-analytics.js
-app.js
-config.js
-index.html
-```
-
-Never use an unstable `siteId` such as a random ID generated on every page load.
-
----
-
-# ✅ Recommended Conventions
-
-Use:
-
-```text
-siteId
-```
-
-as a stable project identifier.
-
-Use:
-
-```text
-siteName
-```
-
-as a human-readable label.
-
-Use:
-
-```text
-sessionId
-```
-
-for a browsing session.
-
-Use:
-
-```text
-visitorId
-```
-
-for a longer-lived visitor identifier.
-
-Use:
-
-```text
-metadata
-```
-
-for project-specific custom events.
-
----
-
-# 📊 Data Semantics
-
-### Views
-
-`views` correspond to `pageview` events.
-
-### Unique visitors
-
-Computed from the `visitor_id` values observed by D1.
-
-### Sessions
-
-A session is identified by:
-
-```text
-site_id + session_id
-```
-
-### Duration
-
-`durationMs` is client-reported engagement duration.
-
-### Scroll
-
-`maxScroll` is the maximum page scroll percentage reported by the client.
-
-### IP
-
-The Worker obtains the request IP from Cloudflare request headers and stores the raw value in the `ip` field when available.
-
----
-
-# 🧪 API Quick Reference
-
-| Purpose | Method | Endpoint |
-|---|---:|---|
-| Root | GET | `/` |
-| Basic health | GET | `/health` |
-| Detailed health | GET | `/api/system-health` |
-| Health alias | GET | `/api/health` |
-| Collect telemetry | POST | `/collect` |
-| List sites | GET | `/api/sites` |
-| Global overview | GET | `/api/overview?days=7` |
-| Site analytics | GET | `/api/site/<siteId>?days=7` |
-| Compatibility stats | GET | `/api/stats?site=<siteId>&days=7` |
-| Admin event query | GET | `/api/admin/events` |
-
----
-
-# 📌 Example Integration Matrix
-
-| Requirement | Recommended endpoint / file |
-|---|---|
-| Connect a GitHub Page | `docs/analytics.js` |
-| Send telemetry manually | `POST /collect` |
-| Discover projects | `GET /api/sites` |
-| Global dashboard | `GET /api/overview` |
-| One-project dashboard | `GET /api/site/<siteId>` |
-| Health center | `GET /api/system-health` |
-| Raw event investigation | `GET /api/admin/events` |
-| Historical archive | `data/sites/<siteId>/events/` |
-
----
-
-# 🚀 Production Notes
-
-For small-to-moderate traffic, request-driven D1 + per-event GitHub archive is straightforward and easy to inspect.
-
-For high-volume production traffic, consider a future batching architecture because every GitHub archive write can create repository/API activity.
-
-A future scalable architecture may use:
-
-```text
-Browser
-   ↓
+Client
+  ↓
 Worker
-   ↓
+  ↓
 D1
-   ↓
+  ↓
 batch/archive pipeline
-   ↓
+  ↓
 GitHub
 ```
 
-rather than creating a GitHub commit for every single telemetry event.
-
-The current deployment intentionally favors:
+Optional improvements for high-volume deployments:
 
 ```text
-simplicity
-immediacy
-traceability
-human-readable archive
-```
-
-over maximum event throughput.
-
----
-
-# 🛠️ Development Principles
-
-When modifying this repository:
-
-1. Keep `siteId` dynamic.
-2. Keep the Worker stateless with respect to the site list.
-3. Keep GitHub credentials server-side.
-4. Keep D1 schema and Worker SQL synchronized.
-5. Preserve existing API routes when possible.
-6. Maintain `/api/system-health`.
-7. Use request IDs in diagnostic logs.
-8. Do not silently rename API fields without documenting it.
-9. Update this README whenever the API contract changes.
-
----
-
-# 📜 License
-
-See:
-
-```text
-LICENSE
+Cloudflare rate limiting
+platform API keys
+idempotency keys
+retention policies
+sampling
+edge buffering
+batch archive
+separate admin API
 ```
 
 ---
 
-# ❤️ Project
+# 🔄 Versioning Policy
 
-**GitHub Page Insights**
-
-A reusable analytics layer for your GitHub Pages ecosystem.
-
-Current Worker:
+The universal API contract is versioned under:
 
 ```text
-https://github-page-insights-worker.game-developer-mb.workers.dev
+/v1/*
 ```
 
-Repository:
+When a breaking API change is introduced, use a new major API namespace instead of silently changing `/v1` semantics.
+
+The machine-readable contract is available through:
 
 ```text
-https://github.com/mehrdadmb2/github-page-insights
+/v1/schema
 ```
+
+---
+
+# 🧠 Canonical AI Integration Checklist
+
+Before an AI changes a project to use this service, it should verify:
+
+```text
+[ ] Read README.md
+[ ] Identify stable platformId
+[ ] Select platformName
+[ ] Select platformType
+[ ] Use POST /v1/events
+[ ] Put custom data under data
+[ ] Keep secrets out of frontend code
+[ ] Discover with GET /v1/platforms
+[ ] Query analytics with GET /v1/platforms/<id>
+[ ] Query raw events with GET /v1/platforms/<id>/events
+[ ] Use /v1/schema when uncertain
+[ ] Test /v1/health
+[ ] Preserve existing application functionality
+```
+
+---
+
+# 🔗 Official References
+
+Cloudflare Workers:
+
+https://developers.cloudflare.com/workers/
+
+Cloudflare Workers Secrets:
+
+https://developers.cloudflare.com/workers/configuration/secrets/
+
+Cloudflare D1 Worker API:
+
+https://developers.cloudflare.com/d1/worker-api/
+
+Cloudflare D1 prepared statements:
+
+https://developers.cloudflare.com/d1/worker-api/prepared-statements/
+
+GitHub Contents API:
+
+https://docs.github.com/en/rest/repos/contents
+
+GitHub REST API authentication:
+
+https://docs.github.com/en/rest/authentication/authenticating-to-the-rest-api
+
+Telegram Bot API:
+
+https://core.telegram.org/bots/api
+
+---
+
+# 🧪 Quick Reference
+
+### Send
+
+```text
+POST /v1/events
+```
+
+### Discover
+
+```text
+GET /v1/platforms
+```
+
+### Global analytics
+
+```text
+GET /v1/overview?days=7
+```
+
+### Platform analytics
+
+```text
+GET /v1/platforms/<platformId>?days=7
+```
+
+### Raw events
+
+```text
+GET /v1/platforms/<platformId>/events?days=7&limit=100
+```
+
+### Health
+
+```text
+GET /v1/health?probe=github
+```
+
+### API contract
+
+```text
+GET /v1/schema
+```
+
+### Telegram webhook
+
+```text
+POST /telegram/webhook
+```
+
+---
+
+# ❤️ Philosophy
+
+**Send one event. Identify one platform. Keep the payload flexible. Query the same data everywhere.**
+
+This project is built so that a GitHub Page, a Telegram bot, a backend API, a mobile app or a completely unrelated service can all speak the same event language.
+
+> **One Worker · Every Platform · One Data Fabric**

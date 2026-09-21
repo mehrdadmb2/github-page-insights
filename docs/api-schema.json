@@ -1,0 +1,92 @@
+{
+  "contractVersion": "1.0",
+  "service": "Universal Event Insights",
+  "workerBaseUrl": "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  "identityField": "platformId",
+  "genericPayload": true,
+  "dynamicFolders": true,
+  "endpoints": {
+    "collect": {
+      "method": "POST",
+      "path": "/v1/events"
+    },
+    "platforms": {
+      "method": "GET",
+      "path": "/v1/platforms"
+    },
+    "overview": {
+      "method": "GET",
+      "path": "/v1/overview?days=7"
+    },
+    "platform": {
+      "method": "GET",
+      "path": "/v1/platforms/<platformId>?days=7"
+    },
+    "platformEvents": {
+      "method": "GET",
+      "path": "/v1/platforms/<platformId>/events?days=7&limit=100"
+    },
+    "events": {
+      "method": "GET",
+      "path": "/v1/events?days=7&limit=100"
+    },
+    "health": {
+      "method": "GET",
+      "path": "/v1/health?probe=github"
+    },
+    "schema": {
+      "method": "GET",
+      "path": "/v1/schema"
+    },
+    "adminEvents": {
+      "method": "GET",
+      "path": "/v1/admin/events"
+    },
+    "telegramWebhook": {
+      "method": "POST",
+      "path": "/telegram/webhook"
+    }
+  },
+  "requiredFields": [
+    "platformId | platform | platformName | name"
+  ],
+  "recommendedFields": [
+    "platformId",
+    "platformName",
+    "platformType",
+    "eventType",
+    "eventId",
+    "sessionId",
+    "visitorId",
+    "timestamp",
+    "data",
+    "metadata"
+  ],
+  "eventTypes": [
+    "pageview",
+    "heartbeat",
+    "pageleave",
+    "visibility",
+    "click",
+    "outbound_click",
+    "scroll",
+    "request",
+    "login",
+    "logout",
+    "purchase",
+    "error",
+    "custom"
+  ],
+  "adminEndpoints": {
+    "notifications": {
+      "method": "GET",
+      "path": "/v1/admin/notifications",
+      "auth": "X-Admin-Key"
+    },
+    "platformKey": {
+      "method": "POST",
+      "path": "/v1/admin/platform-key",
+      "auth": "X-Admin-Key"
+    }
+  }
+}

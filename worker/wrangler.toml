@@ -1,12 +1,15 @@
-name = "github-page-insights-worker"
-main = "src/index.js"
-compatibility_date = "2026-09-10"
-workers_dev = true
+name = "universal-event-insights-worker"
+main = "index.js"
+compatibility_date = "2026-09-21"
 
 [vars]
 GITHUB_OWNER = "mehrdadmb2"
 GITHUB_REPO = "github-page-insights"
 GITHUB_BRANCH = "main"
+GITHUB_ARCHIVE_ENABLED = "true"
+REQUIRE_PLATFORM_KEY = "false"
+TELEGRAM_ENABLED = "true"
+TELEGRAM_NOTIFY_MODE = "visitor"
 
 [[d1_databases]]
 binding = "DB"

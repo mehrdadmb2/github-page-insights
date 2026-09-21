@@ -1,0 +1,16 @@
+CREATE INDEX idx_events_platform_received ON events(platform_id, received_at);
+CREATE INDEX idx_events_received ON events(received_at);
+CREATE INDEX idx_events_platform_type ON events(platform_id, event_type);
+CREATE INDEX idx_events_platform_ip ON events(platform_id, ip);
+CREATE INDEX idx_events_ip ON events(ip);
+CREATE INDEX idx_events_platform_visitor ON events(platform_id, visitor_id);
+CREATE INDEX idx_events_platform_session ON events(platform_id, session_id);
+CREATE INDEX idx_events_country ON events(country);
+CREATE INDEX idx_events_browser ON events(browser);
+CREATE INDEX idx_events_os ON events(os);
+CREATE INDEX idx_events_device ON events(device);
+CREATE INDEX idx_events_path ON events(platform_id, path);
+CREATE INDEX idx_sessions_last_seen ON platform_sessions(platform_id, last_seen);
+CREATE INDEX idx_sessions_visitor ON platform_sessions(platform_id, visitor_id);
+CREATE INDEX idx_visitors_last_seen ON platform_visitors(platform_id, last_seen);
+CREATE INDEX idx_notifications_platform ON notification_log(platform_id, sent_at);

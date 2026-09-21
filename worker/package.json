@@ -1,7 +1,8 @@
 {
-  "name": "github-page-insights-worker",
+  "name": "universal-event-insights-worker",
   "private": true,
-  "version": "5.0.0",
   "type": "module",
-  "scripts": {"check": "node --check src/index.js"}
+  "scripts": {
+    "check": "node --check index.js"
+  }
 }

@@ -1,39 +1,97 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#070b14">
-<meta name="description" content="GitHub Page Insights — real-time analytics, visitor intelligence, network telemetry and system health.">
-<title>GitHub Page Insights</title>
-<link rel="icon" href="logo.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#070812">
+  <meta name="description" content="Universal Event Insights — multi-platform analytics dashboard powered by Cloudflare Workers and D1.">
+  <meta name="uei-platform-id" content="github-page-insights-dashboard">
+  <meta name="uei-platform-name" content="GitHub Page Insights Dashboard">
+  <meta name="uei-platform-type" content="web-dashboard">
+  <title>Universal Event Insights</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
 </head>
 <body>
-<div id="boot" class="boot-screen"><div class="boot-core"><img src="logo.svg" alt=""><div class="boot-brand">GITHUB PAGE INSIGHTS</div><div class="boot-line"><i id="bootLine"></i></div><div id="bootPct">0%</div><small id="bootLineText">Initializing analytics engine…</small></div></div>
-<div class="ambient ambient-a"></div><div class="ambient ambient-b"></div><div class="ambient ambient-c"></div>
-<header class="topbar">
-  <a class="brand" href="."><img src="logo.svg" alt="Logo"><span><b>GitHub Page Insights</b><small>Telemetry & visitor intelligence</small></span></a>
-  <div class="top-actions"><span id="statusText" class="status-pill"><i></i>Starting</span><span id="lastSync" class="sync-text">—</span><button id="refreshBtn" class="icon-btn" title="Refresh">↻</button><button id="themeBtn" class="icon-btn" title="Toggle theme">◐</button></div>
-</header>
-<main class="shell">
-<section class="hero"><div><div class="eyebrow">OBSERVABILITY / GITHUB PAGES</div><h1>One control plane for every Page.</h1><p>Live traffic, visitor context, network signals and backend health — discovered automatically from your connected sites.</p><div class="hero-actions"><button id="focusBtn" class="primary">Open site explorer</button><button id="allSitesBtn" class="secondary">All sites</button></div></div><div class="hero-orbit"><div class="orbit-ring r1"></div><div class="orbit-ring r2"></div><div class="orbit-core"><span>LIVE</span><b id="heroEdge">—</b><small>worker edge</small></div><div class="orbit-dot d1"></div><div class="orbit-dot d2"></div><div class="orbit-dot d3"></div></div></section>
-<section class="health" id="healthCenter"><div class="section-head"><div><span class="eyebrow">SYSTEM HEALTH CENTER</span><h2>Is the stack actually healthy?</h2></div><div class="health-actions"><span id="healthOverall" class="health-overall warning"><i></i><b>CHECKING</b></span><button id="healthRefreshBtn" class="secondary compact">Run diagnostics</button></div></div>
-<div class="health-grid"><article class="health-card" id="healthWorkerCard"><div class="health-icon">W</div><div><span>Worker</span><strong id="healthWorkerStatus">CHECKING</strong><small id="healthWorkerMeta">Endpoint reachability</small></div></article><article class="health-card" id="healthDbCard"><div class="health-icon">D1</div><div><span>D1 Database</span><strong id="healthDbStatus">CHECKING</strong><small id="healthDbMeta">Schema & connectivity</small></div></article><article class="health-card" id="healthGithubCard"><div class="health-icon">GH</div><div><span>GitHub API</span><strong id="healthGithubStatus">CHECKING</strong><small id="healthGithubMeta">Repository access</small></div></article><article class="health-card" id="healthTelemetryCard"><div class="health-icon">T</div><div><span>Telemetry</span><strong id="healthTelemetryStatus">CHECKING</strong><small id="healthTelemetryMeta">Waiting for events</small></div></article></div>
-<div class="health-stats"><div><small>Total events</small><b id="healthEventsCount">0</b></div><div><small>Tracked sites</small><b id="healthSitesCount">0</b></div><div><small>Sessions</small><b id="healthSessionsCount">0</b></div><div><small>GitHub rate</small><b id="healthRate">—</b></div><div><small>Last event</small><b id="healthLastEvent">—</b></div><div><small>Diagnostic latency</small><b id="healthLatency">—</b></div></div></section>
-<section class="workspace" id="explorer">
-<aside class="rail panel"><div class="rail-head"><div><span class="eyebrow">PROJECT EXPLORER</span><h2>Connected sites</h2></div><span id="siteBadge" class="badge">AUTO</span></div><div class="rail-tools"><input id="siteSearch" type="search" placeholder="Search sites…" autocomplete="off"><span id="siteCount">0 sites</span></div><div id="siteList" class="site-list"></div><div class="rail-footer"><span id="inventoryState">Scanning…</span><button id="railRefresh" class="ghost">↻</button></div></aside>
-<section class="content"><div class="site-head"><div class="site-identity"><div id="siteAvatar" class="avatar">AI</div><div><div class="eyebrow">SELECTED PROJECT</div><h2 id="siteTitle">All sites</h2><p id="siteMeta">Aggregate traffic across all connected pages</p></div></div><div class="filters"><span id="rangeBadge" class="badge">7 DAYS</span><select id="rangeSelect"><option value="1">24H</option><option value="7" selected>7 DAYS</option><option value="14">14 DAYS</option><option value="30">30 DAYS</option><option value="90">90 DAYS</option><option value="all">ALL TIME</option></select></div></div>
-<div id="metrics" class="metric-grid"></div>
-<div class="grid-two"><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">TRAFFIC FLOW</span><h3>Views over time</h3></div><span id="trafficSummary">—</span></div><div class="chart-wrap"><canvas id="trafficChart"></canvas><div id="trafficEmpty" class="chart-empty">No pageview data yet.</div></div></article><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">DEVICE MIX</span><h3>Client footprint</h3></div><span>pageviews</span></div><div class="device-layout"><div id="deviceDonut" class="donut"><div><b id="deviceCenter">0%</b><small>mobile</small></div></div><div id="deviceLegend" class="legend"></div></div></article></div>
-<div class="grid-two"><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">GEO INTELLIGENCE</span><h3>Top countries</h3></div><span>30 max</span></div><div id="countryList" class="rank-list"></div></article><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">TOP CONTENT</span><h3>Most visited paths</h3></div><span>30 max</span></div><div id="pageList" class="rank-list"></div></article></div>
-<div class="grid-two"><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">CLIENT STACK</span><h3>Browser distribution</h3></div></div><div id="browserList" class="mini-list"></div></article><article class="panel glass"><div class="panel-head"><div><span class="eyebrow">PLATFORM</span><h3>Operating systems</h3></div></div><div id="osList" class="mini-list"></div></article></div>
-<article class="panel glass wide"><div class="panel-head"><div><span class="eyebrow">NETWORK INTELLIGENCE</span><h3>Top visitor IPs</h3></div><span id="ipSummary">0 IPs</span></div><div id="ipList" class="ip-grid"></div></article>
-<article class="panel glass wide"><div class="panel-head"><div><span class="eyebrow">LIVE ARCHIVE</span><h3>Recent visitor events</h3></div><span id="recentStatus">loading…</span></div><div class="table-wrap"><table><thead><tr><th>TIME</th><th>PROJECT</th><th>IP</th><th>LOCATION</th><th>PAGE</th><th>DEVICE</th><th>BROWSER</th><th>DURATION</th><th>REFERRER</th></tr></thead><tbody id="recentRows"></tbody></table></div></article>
-<article class="panel glass wide"><div class="panel-head"><div><span class="eyebrow">EVENT TELEMETRY</span><h3>Signal distribution</h3></div><span>all event types</span></div><div id="eventCloud" class="event-cloud"></div></article>
-</section></section></main><footer><span>GitHub Page Insights <b>v6</b></span><span>Cloudflare Worker · D1 · GitHub Archive · Raw IP analytics</span></footer><div id="toastStack" class="toast-stack"></div>
-<script src="config.js"></script><script src="app.js"></script>
-</body></html>
+  <div class="boot" id="boot">
+    <div class="boot-ring"></div>
+    <div class="boot-logo"><img src="logo.svg" alt="Universal Event Insights"></div>
+    <div class="boot-title">UNIVERSAL EVENT INSIGHTS</div>
+    <div class="boot-sub">Initializing telemetry control plane…</div>
+  </div>
+
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div><div class="ambient ambient-c"></div>
+  <div class="grid-noise"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark"><img src="logo.svg" alt=""></div>
+      <div><strong>Universal Event Insights</strong><span>Any platform. One API. One control plane.</span></div>
+    </div>
+    <div class="top-actions">
+      <span class="pill" id="livePill"><i></i> Live</span>
+      <button class="icon-btn" id="themeBtn" title="Toggle theme">◐</button>
+      <button class="icon-btn" id="diagBtn" title="Run diagnostics">⌁</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero-grid">
+      <div class="hero-copy panel">
+        <div class="eyebrow">MULTI-PLATFORM ANALYTICS FABRIC</div>
+        <h1>One Worker.<br><span>Every Platform.</span></h1>
+        <p>Collect structured events from websites, bots, apps, APIs, dashboards and custom clients. Discover each platform dynamically and query its data without hard-coded project lists.</p>
+        <div class="hero-actions">
+          <button class="primary" id="refreshBtn">↻ Refresh data</button>
+          <button class="ghost" id="healthBtn">⚕ System health</button>
+        </div>
+      </div>
+      <div class="health panel" id="healthPanel">
+        <div class="panel-head"><div><div class="eyebrow">SYSTEM HEALTH</div><h2>Control plane diagnostics</h2></div><span class="status-badge" id="overallBadge">Checking…</span></div>
+        <div class="health-grid">
+          <div class="health-card" id="h-worker"><b>Worker</b><strong>Checking</strong><small>Reachability</small></div>
+          <div class="health-card" id="h-d1"><b>D1</b><strong>Checking</strong><small>Schema & counts</small></div>
+          <div class="health-card" id="h-gh"><b>GitHub</b><strong>Checking</strong><small>Archive/API</small></div>
+          <div class="health-card" id="h-tg"><b>Telegram</b><strong>Checking</strong><small>Notification path</small></div>
+        </div>
+        <div class="health-meta" id="healthMeta">Waiting for diagnostics…</div>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="stat-card"><span>Platforms</span><b id="s-platforms">—</b><em id="s-platforms-sub">discovered dynamically</em></article>
+      <article class="stat-card"><span>Events</span><b id="s-events">—</b><em>selected range</em></article>
+      <article class="stat-card"><span>Visitors</span><b id="s-visitors">—</b><em>unique identifiers</em></article>
+      <article class="stat-card"><span>Sessions</span><b id="s-sessions">—</b><em>tracked sessions</em></article>
+      <article class="stat-card"><span>Avg. time</span><b id="s-duration">—</b><em>engagement</em></article>
+      <article class="stat-card"><span>Last event</span><b id="s-last">—</b><em id="s-last-sub">—</em></article>
+    </section>
+
+    <section class="toolbar panel">
+      <div class="platform-select"><label>PLATFORM</label><select id="platformSelect"><option value="*">All platforms</option></select></div>
+      <div class="range-select"><label>RANGE</label><div class="seg" id="rangeSeg"><button data-days="1">1D</button><button data-days="7" class="active">7D</button><button data-days="30">30D</button><button data-days="90">90D</button><button data-days="all">ALL</button></div></div>
+      <div class="search"><label>FILTER</label><input id="platformSearch" placeholder="Search platforms…"></div>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="panel chart-panel wide"><div class="panel-head"><div><div class="eyebrow">TRAFFIC FLOW</div><h2>Events over time</h2></div><span id="trafficInfo" class="muted">—</span></div><div class="chart" id="trafficChart"></div></article>
+      <article class="panel chart-panel"><div class="panel-head"><div><div class="eyebrow">PLATFORM MIX</div><h2>Top platforms</h2></div></div><div class="bars" id="platformBars"></div></article>
+    </section>
+
+    <section class="triple-grid">
+      <article class="panel"><div class="panel-head"><div><div class="eyebrow">GEO INTELLIGENCE</div><h2>Countries</h2></div></div><div class="list" id="countries"></div></article>
+      <article class="panel"><div class="panel-head"><div><div class="eyebrow">CLIENT STACK</div><h2>Browsers & OS</h2></div></div><div class="dual-list"><div id="browsers"></div><div id="oses"></div></div></article>
+      <article class="panel"><div class="panel-head"><div><div class="eyebrow">NETWORK</div><h2>Top IPs</h2></div></div><div class="list" id="ips"></div></article>
+    </section>
+
+    <section class="panel table-panel"><div class="panel-head"><div><div class="eyebrow">RAW TELEMETRY</div><h2 id="eventsTitle">Recent events</h2></div><span class="muted" id="eventCount">—</span></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Platform</th><th>Type</th><th>IP</th><th>Location</th><th>Device</th><th>Browser</th><th>Page</th><th>Duration</th></tr></thead><tbody id="eventsBody"></tbody></table></div></section>
+
+    <footer class="footer">Universal Event Insights · request-driven analytics fabric · <span id="footVersion"></span></footer>
+  </main>
+
+  <div class="toast-stack" id="toasts"></div>
+  <script src="app.js"></script>
+<script src="analytics.js"></script>
+</body>
+</html>
