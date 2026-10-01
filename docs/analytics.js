@@ -1,4 +1,4 @@
-/* Universal Event Insights Browser SDK v10 */
+/* Universal Event Insights Browser SDK v11 */
 (function () {
   "use strict";
 
