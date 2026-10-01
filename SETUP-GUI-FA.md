@@ -4,6 +4,9 @@
 
 ---
 
+
+> **مهم — D1 Console v9.1:** برای نصب عادی فقط `db/console/INSTALL/` را به ترتیب اجرا کنید و بعد `db/console/VERIFY/` را اجرا کنید. `db/console/RESET/` مخرب است و در نصب عادی نباید اجرا شود. فایل `db/schema-v9.sql` فقط مرجع create-only است و برای Console نباید یک‌جا paste شود.
+
 ## مرحله 0 — فایل‌ها را در GitHub قرار بده
 
 کل محتویات این پوشه را داخل repository قرار بده.

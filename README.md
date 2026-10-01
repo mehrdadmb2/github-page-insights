@@ -24,6 +24,9 @@ POST /v1/events
 
 ---
 
+
+> **مهم — D1 Console v9.1:** برای نصب عادی فقط `db/console/INSTALL/ (legacy GUI fallback)` را به ترتیب اجرا کنید و بعد `db/console/VERIFY/` را اجرا کنید. `db/console/RESET/` مخرب است و در نصب عادی نباید اجرا شود. فایل `db/schema-v9.sql` فقط مرجع create-only است و برای Console نباید یک‌جا paste شود.
+
 ## 1. What this project is
 
 This repository is no longer a GitHub-Pages-only analytics project.
@@ -1584,7 +1587,7 @@ admin operations
 API contract
 ```
 
-## `worker/wrangler.toml`
+## `wrangler.jsonc`
 
 Infrastructure-as-code reference for the same Worker name, variables and D1 binding.
 
@@ -1729,3 +1732,22 @@ The validation covers JavaScript syntax, D1 schema/Worker column alignment, all 
 ## License
 
 MIT — see `LICENSE`.
+
+
+## Windows + Wrangler (recommended deployment path)
+
+Cloudflare infrastructure for this version is managed from Windows with Wrangler: D1 creation, remote SQL execution, secrets, bindings, and Worker deployment. Start with `SETUP-WRANGLER-WINDOWS-FA.md`.
+
+Quick path:
+
+```powershell
+npm install
+npx wrangler login --use-keyring
+npx wrangler d1 create github-page-insights --binding DB --update-config --use-remote
+npx wrangler d1 execute github-page-insights --remote --file=./db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql --yes
+npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put ADMIN_KEY
+npx wrangler deploy
+```
+
+The `d1 create` command is only needed when the database does not already exist.

@@ -1,0 +1,23 @@
+{
+  "name": "github-page-insights-universal",
+  "version": "9.1.0-wrangler-windows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check worker/index.js && node --check docs/app.js && node --check docs/analytics.js && node --check docs/config.js",
+    "wrangler:version": "wrangler --version",
+    "cf:login": "wrangler login --use-keyring",
+    "cf:whoami": "wrangler whoami",
+    "d1:list": "wrangler d1 list",
+    "d1:info": "wrangler d1 info github-page-insights",
+    "d1:setup": "wrangler d1 execute github-page-insights --remote --file=./db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql --yes",
+    "d1:verify": "wrangler d1 execute github-page-insights --remote --command=\"PRAGMA table_list;\"",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail github-page-insights-worker",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
