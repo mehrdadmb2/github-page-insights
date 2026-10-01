@@ -1,5 +1,6 @@
 {
-  "name": "universal-event-insights-worker",
+  "name": "github-page-insights-worker",
+  "version": "9.0.0",
   "private": true,
   "type": "module",
   "scripts": {

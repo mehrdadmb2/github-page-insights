@@ -1,5 +1,4 @@
-CREATE TABLE IF NOT EXISTS platforms (
-  platform_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS platforms (platform_id TEXT PRIMARY KEY,
   platform_name TEXT NOT NULL,
   platform_type TEXT NOT NULL DEFAULT 'generic',
   platform_url TEXT,
@@ -26,5 +25,4 @@ CREATE TABLE IF NOT EXISTS platforms (
   api_key_hash TEXT,
   api_key_updated_at TEXT,
   metadata_json TEXT NOT NULL DEFAULT '{}',
-  capabilities_json TEXT NOT NULL DEFAULT '{}'
-);
+  capabilities_json TEXT NOT NULL DEFAULT '{}');

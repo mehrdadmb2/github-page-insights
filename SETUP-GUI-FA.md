@@ -1,80 +1,244 @@
-# راه‌اندازی کامل Universal Event Insights v8 فقط با رابط گرافیکی
+# راه‌اندازی GUI-only — Universal Event Insights v9
 
-این نسخه برای راه‌اندازی بدون CLI آماده شده است. مهم‌ترین نکته این است که در Cloudflare D1 Console هر فایل SQL شماره‌دار داخل `db/console/` را جداگانه اجرا کنی.
+این فایل برای راه‌اندازی پروژه فقط با رابط گرافیکی GitHub و Cloudflare نوشته شده است.
 
-## 1) ساخت / انتخاب D1
+---
 
-Cloudflare Dashboard → Workers & Pages → D1 → دیتابیس `github-page-insights`
+## مرحله 0 — فایل‌ها را در GitHub قرار بده
 
-اگر دیتابیس فعلی را می‌خواهی از صفر بسازی، مراحل SQL زیر داده‌های قبلی را پاک می‌کنند.
+کل محتویات این پوشه را داخل repository قرار بده.
 
-## 2) ساخت دیتابیس از داخل D1 Console
-
-وارد دیتابیس شو → Console.
-
-به ترتیب:
-
-`01` تا `07`  → حذف جداول قدیمی
-
-`08` تا `14` → ساخت جداول جدید
-
-`15` تا `44` → ساخت ایندکس‌ها
-
-`45` تا `46` → ثبت نسخه اسکیمای v8
-
-`47` تا `55` → بررسی نهایی
-
-هر فایل فقط یک statement دارد.
-
-### قانون مهم Console
-
-هیچ‌وقت کل پوشه را یک‌جا paste نکن.
-
-این موارد را هم اجرا نکن:
-
-```sql
-BEGIN TRANSACTION;
-COMMIT;
-```
-
-برای محیط D1 Console مورد استفاده در این پروژه، روش فایل‌های تک‌statement در نظر گرفته شده است.
-
-## 3) بررسی خروجی D1
-
-در انتها `55_verify_counts.sql` باید چیزی شبیه این نشان دهد:
+ساختار اصلی باید این باشد:
 
 ```text
-platforms | events | visitors | sessions | archives | notifications
-0         | 0      | 0        | 0        | 0        | 0
+data/platforms/.gitkeep
+
+db/schema.sql
+db/schema-v9.sql
+db/SCHEMA-V9-CATALOG-FA.md
+db/console/...
+
+docs/index.html
+docs/style.css
+docs/app.js
+docs/analytics.js
+docs/config.js
+docs/api-schema.json
+docs/logo.svg
+
+worker/index.js
+worker/package.json
+worker/wrangler.toml
+
+tests-SAMPLE-EVENT.json
+README.md
+SETUP-GUI-FA.md
+LICENSE
+VALIDATION-REPORT-FA.md
+tests/validate.mjs
 ```
 
-صفر بودن شمارنده‌ها در دیتابیس تازه طبیعی است.
+---
 
-## 4) تنظیم Worker در Cloudflare Dashboard
+# مرحله 1 — D1
 
-Workers & Pages → Worker → Edit code.
-
-محتوای کامل:
-
-`worker/index.js`
-
-را جایگزین کد قبلی Worker کن.
-
-سپس در Worker → Settings → Variables and Secrets این موارد را تنظیم کن.
-
-### Variables
+در Cloudflare:
 
 ```text
-GITHUB_OWNER=mehrdadmb2
-GITHUB_REPO=github-page-insights
-GITHUB_BRANCH=main
-GITHUB_ARCHIVE_ENABLED=true
-REQUIRE_PLATFORM_KEY=false
-TELEGRAM_ENABLED=true
-TELEGRAM_NOTIFY_MODE=visitor
+Workers & Pages
+→ D1
+→ github-page-insights
+→ Console
 ```
 
-### Secrets
+> اگر دیتابیس کاملاً جدید است، فایل‌های DROP هم مشکلی ندارند.
+>
+> اگر دیتای قدیمی v8 برایت مهم است، **فایل‌های 01 تا 07 را اجرا نکن** و قبل از هر کاری از D1 خروجی بگیر. در این پروژه بازسازی پاک‌شونده، فرض بر این است که داده قدیمی قابل حذف است.
+
+### اجرای SQL
+
+هر فایل را جداگانه باز کن و فقط همان یک statement را در Console اجرا کن.
+
+ابتدا:
+
+```text
+01
+02
+03
+04
+05
+06
+07
+```
+
+بعد:
+
+```text
+08
+09
+10
+11
+12
+13
+14
+```
+
+بعد:
+
+```text
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+```
+
+بعد:
+
+```text
+45
+46
+```
+
+و در پایان بررسی:
+
+```text
+47
+48
+49
+50
+51
+52
+53
+54
+55
+```
+
+### نتیجه مهم
+
+فایل:
+
+```text
+48_verify_event_columns.sql
+```
+
+باید 96 ستون برای `events` نشان دهد.
+
+---
+
+# مرحله 2 — D1 Binding برای Worker
+
+در Worker موجود:
+
+```text
+github-page-insights-worker
+```
+
+برو به:
+
+```text
+Settings
+→ Bindings
+→ Add binding
+→ D1 database
+```
+
+مقدار:
+
+```text
+Variable name = DB
+Database = github-page-insights
+```
+
+باید نتیجه شبیه این باشد:
+
+```text
+DB → github-page-insights
+```
+
+---
+
+# مرحله 3 — Variables
+
+در:
+
+```text
+Settings
+→ Variables and Secrets
+```
+
+Variables متنی:
+
+```text
+GITHUB_OWNER
+mehrdadmb2
+```
+
+```text
+GITHUB_REPO
+github-page-insights
+```
+
+```text
+GITHUB_BRANCH
+main
+```
+
+```text
+GITHUB_ARCHIVE_ENABLED
+true
+```
+
+```text
+REQUIRE_PLATFORM_KEY
+false
+```
+
+```text
+TELEGRAM_ENABLED
+true
+```
+
+```text
+TELEGRAM_NOTIFY_MODE
+visitor
+```
+
+```text
+DEBUG
+false
+```
+
+---
+
+# مرحله 4 — Secrets
+
+این‌ها را به‌عنوان Secret اضافه کن:
 
 ```text
 GITHUB_TOKEN
@@ -84,352 +248,267 @@ TELEGRAM_ADMIN_CHAT_ID
 TELEGRAM_WEBHOOK_SECRET
 ```
 
-هیچ Secretی را داخل `docs/` یا JavaScript فرانت‌اند قرار نده.
+هیچ‌کدام را داخل `docs/config.js` قرار نده.
 
-## 5) D1 Binding
+---
 
-Worker → Settings → Bindings → D1 Database
+# مرحله 5 — Worker code
 
-باید دقیقاً این binding وجود داشته باشد:
+در Cloudflare Worker:
 
 ```text
-Variable name: DB
-Database: github-page-insights
+Edit code
 ```
 
-کد Worker از `env.DB` استفاده می‌کند.
+کل محتوای:
 
-## 6) Deploy Worker
+```text
+worker/index.js
+```
 
-بعد از ذخیره Variables / Secrets / Binding، Deploy را بزن.
+را جایگزین کد فعلی کن.
 
-## 7) Health Check
+کد قدیمی را نصفه/نصفه با v9 ترکیب نکن.
 
-این آدرس را باز کن:
+بعد:
+
+```text
+Save and Deploy
+```
+
+---
+
+# مرحله 6 — Health
+
+باز کن:
 
 ```text
 https://github-page-insights-worker.game-developer-mb.workers.dev/v1/health
 ```
 
-برای بررسی GitHub نیز:
+و بعد:
+
+```text
+https://github-page-insights-worker.game-developer-mb.workers.dev/v1/schema
+```
+
+برای GitHub probe:
 
 ```text
 https://github-page-insights-worker.game-developer-mb.workers.dev/v1/health?probe=github
 ```
 
-## 8) اولین تست Collector
+در Health، در حالت نصب اولیه ممکن است `degraded` ببینی چون هنوز event وارد نشده یا Telegram کامل نشده است. آن وضعیت به‌تنهایی به معنی خراب بودن Worker نیست.
 
-یک درخواست JSON با حداقل `platformId` باید با HTTP 201 پاسخ دهد.
+---
 
-نمونه:
+# مرحله 7 — تست Event
 
-```json
-{
-  "platformId": "test-platform",
-  "platformName": "Test Platform",
-  "platformType": "web",
-  "environment": "production",
-  "eventType": "pageview",
-  "identity": {
-    "visitorId": "visitor-demo",
-    "sessionId": "session-demo"
-  },
-  "page": {
-    "url": "https://example.com/",
-    "path": "/",
-    "title": "Example"
-  },
-  "data": {
-    "hello": "world"
-  }
-}
-```
-
-بعد از آن در D1 باید حداقل یک رکورد در این جدول‌ها دیده شود:
+برای تست از:
 
 ```text
-platforms
-platform_visitors
-platform_sessions
-events
+tests-SAMPLE-EVENT.json
 ```
 
-و در GitHub باید این مسیر ساخته شود:
+استفاده کن.
+
+Endpoint:
 
 ```text
-data/platforms/test-platform/events/YYYY/MM/DD/
+POST https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
 ```
 
-## 9) راه‌اندازی GitHub Pages Dashboard
-
-GitHub Repository → Settings → Pages
-
-Source:
+Header:
 
 ```text
-Deploy from a branch
+Content-Type: application/json
 ```
 
-Branch:
+بعد بررسی کن:
 
 ```text
-main
+D1 → events
+D1 → platforms
+D1 → platform_visitors
+D1 → platform_sessions
+GitHub → data/platforms/sample-web-app/events/...
 ```
 
-Folder:
+---
+
+# مرحله 8 — GitHub Pages Dashboard
+
+در repository:
+
+```text
+Settings
+→ Pages
+```
+
+Source را روی branch اصلی قرار بده و folder زیر را انتخاب کن:
 
 ```text
 /docs
 ```
 
-بعد از انتشار، داشبورد با Worker API صحبت می‌کند و Secretی در مرورگر لازم ندارد.
+`docs/config.js` از قبل Worker فعلی را دارد.
 
-## 10) راه‌اندازی Telegram
+بعد از انتشار dashboard را باز کن.
 
-بعد از اینکه Worker سالم شد:
+---
 
-Secrets را تنظیم کن و سپس endpoint زیر را با `X-Admin-Key` اجرا کن:
+# مرحله 9 — Telegram
 
-```text
-GET /telegram/setup
-```
+وقتی Worker و D1 سالم شدند:
 
-Webhook روی این مسیر قرار می‌گیرد:
+در Telegram بات را باز کن و مطمئن شو Chat ID درست است.
 
-```text
-POST /telegram/webhook
-```
-
-برای تست پیام:
+در Cloudflare Secret:
 
 ```text
-GET /telegram/test
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
 ```
 
-## 11) معماری ذخیره‌سازی داده
+را تنظیم کن.
+
+Worker را دوباره Deploy کن.
+
+سپس درخواست setup را از یک ابزار GUI مثل مرورگر/REST client ارسال کن:
 
 ```text
-Client
-  ↓
-POST /v1/events
-  ↓
-Cloudflare Worker
-  ├── D1 events
-  ├── D1 platform_visitors
-  ├── D1 platform_sessions
-  ├── D1 platforms
-  ├── D1 event_archives
-  ├── GitHub per-event JSON archive
-  └── Telegram notification
+GET https://github-page-insights-worker.game-developer-mb.workers.dev/telegram/setup
 ```
 
-هیچ Cron یا Scheduled Trigger برای دریافت event لازم نیست.
-
-## 12) چیزی که در هر event نگه‌داری می‌شود
-
-### هویت و پلتفرم
+Header:
 
 ```text
-platformId
-platformName
-platformType
-platformUrl
-platformDomain
-environment
-appVersion
-sdkName
-sdkVersion
-source
-userId
-visitorId
-sessionId
-anonymousId
-traceId
-requestId
+X-Admin-Key: YOUR_ADMIN_KEY
 ```
 
-### صفحه / ارجاع
+بعد تست:
 
 ```text
-pageUrl
-path
-queryString
-title
-referrer
-referrerHost
-utmSource
-utmMedium
-utmCampaign
-utmTerm
-utmContent
+GET https://github-page-insights-worker.game-developer-mb.workers.dev/telegram/test
 ```
 
-### Geo / شبکه Cloudflare
+همان header را ارسال کن.
+
+باید پیام تست داخل Telegram دریافت شود.
+
+---
+
+# مرحله 10 — تست دستورات Telegram
+
+در خود بات:
 
 ```text
-country
-region
-regionCode
-city
-continent
-colo
-asn
-asOrganization
-latitude
-longitude
-postalCode
-metroCode
-timezone
-tlsVersion
-clientTcpRtt
-clientQuicRtt
-botScore
-verifiedBot
-ja3
-ja4
-cfRay
+/start
 ```
 
-این مقادیر تا جایی ذخیره می‌شوند که Cloudflare برای همان request در دسترس قرار داده باشد.
-
-### IP
+بعد:
 
 ```text
-ip
-ipHash
-platformIp
-forwardedFor
-ipSource
+/status
 ```
 
-`ip` آدرس کلاینت/درخواست‌کننده‌ای است که Worker می‌بیند.
-
-`platformIp` برای زمانی است که خود سیستم مبدا IP سرویس یا سرور پلتفرم را می‌داند و آن را داخل event می‌فرستد؛ این مقدار از یک درخواست مرورگری به‌صورت خودکار قابل حدس‌زدن نیست.
-
-### Browser / Device
+بعد:
 
 ```text
-userAgent
-browser
-browserVersion
-os
-osVersion
-device
-deviceVendor
-deviceModel
-screenWidth
-screenHeight
-viewportWidth
-viewportHeight
-devicePixelRatio
-colorDepth
+/platforms
 ```
 
-### Connection
+و برای یک platform:
 
 ```text
-connectionType
-connectionDownlink
-connectionRtt
-connectionSaveData
+/platform sample-web-app
 ```
 
-### HTTP request
+یا:
 
 ```text
-httpMethod
-requestUrl
-requestScheme
-requestHost
-requestPath
-requestQuery
-requestContentType
-requestContentLength
-acceptHeader
-acceptEncoding
-originHeader
+/recent sample-web-app
 ```
 
-### Event metrics
+---
+
+# خطاهای مهم
+
+## `D1_STORE_FAILED`
+
+اول این‌ها را بررسی کن:
 
 ```text
-responseStatus
-durationMs
-maxScroll
-clicks
-outboundClicks
+DB binding
+Schema v9
+Worker v9
 ```
 
-### JSONهای منعطف
+و:
 
 ```text
-dataJson
-metadataJson
-headersJson
-cfJson
-requestJson
-payloadJson
-rawEventJson
+48_verify_event_columns.sql
 ```
 
-این قسمت برای داده‌های اختصاصی پلتفرم‌هاست؛ مثلاً CRM، فروشگاه، ربات، API یا اپلیکیشن می‌توانند فیلدهای اختصاصی خودشان را بدون تغییر اسکیمای SQL ارسال کنند.
+باید 96 ستون را نشان دهد.
 
-## 13) درباره هدرها و Secretها
+## `D1 schema is incomplete`
 
-برای اینکه telemetry به محل ذخیره‌ی credential تبدیل نشود، Worker قبل از JSON persistence کلیدهای رایج credential را redact می‌کند، از جمله:
+یعنی D1 هنوز با Worker نسخه 9 هماهنگ نیست.
+
+## `GITHUB_401` / `GITHUB_403`
+
+توکن GitHub یا permission آن مشکل دارد.
+
+مورد لازم:
 
 ```text
-Authorization
-Cookie
-Set-Cookie
-X-API-Key
-X-Platform-Key
-X-Admin-Key
-password
-secret
-token
-private-key
-client-secret
+Contents: Read and write
 ```
 
-در نتیجه «همه اطلاعات مفید» ذخیره می‌شود، ولی credentialهای شناخته‌شده عمداً ذخیره نمی‌شوند.
+## Dashboard خالی است
 
-## 14) APIهای اصلی
+اول:
 
 ```text
-POST /v1/events
-GET  /v1/platforms
-GET  /v1/platforms/<platformId>
-GET  /v1/platforms/<platformId>/events
-GET  /v1/platforms/<platformId>/visitors
-GET  /v1/platforms/<platformId>/sessions
-GET  /v1/overview
-GET  /v1/health
-GET  /v1/schema
-GET  /v1/admin/events
-GET  /v1/admin/event?id=<eventId>
-POST /v1/admin/archive-retry/<eventId>
-POST /telegram/webhook
-GET  /telegram/setup
-GET  /telegram/test
+/v1/platforms
 ```
 
-## 15) اضافه کردن پلتفرم جدید
+اگر صفر بود، test event بفرست.
 
-هیچ لیست hard-code شده‌ای لازم نیست.
+## Telegram کار نمی‌کند
 
-هر کلاینت فقط یک `platformId` جدید می‌فرستد:
-
-```json
-{
-  "platformId": "crm-production"
-}
-```
-
-Worker رکورد پلتفرم را خودکار ایجاد / به‌روزرسانی می‌کند.
-
-آرشیو نیز خودکار به namespace جدا می‌رود:
+به ترتیب بررسی کن:
 
 ```text
-data/platforms/crm-production/events/...
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
+TELEGRAM_ENABLED=true
 ```
+
+بعد:
+
+```text
+/telegram/setup
+/telegram/test
+```
+
+را دوباره انجام بده.
+
+---
+
+# نکته مهم نسخه‌ها
+
+همیشه این مجموعه را هماهنگ نگه دار:
+
+```text
+Worker v9
+D1 v9
+Dashboard v9
+Browser SDK v9
+API schema v9
+```
+
+کد Worker v8 را روی D1 v9 یا برعکس نصب نکن.

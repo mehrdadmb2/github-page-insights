@@ -1,6 +1,7 @@
-name = "universal-event-insights-worker"
+name = "github-page-insights-worker"
 main = "index.js"
-compatibility_date = "2026-09-21"
+compatibility_date = "2026-10-01"
+workers_dev = true
 
 [vars]
 GITHUB_OWNER = "mehrdadmb2"
@@ -10,7 +11,10 @@ GITHUB_ARCHIVE_ENABLED = "true"
 REQUIRE_PLATFORM_KEY = "false"
 TELEGRAM_ENABLED = "true"
 TELEGRAM_NOTIFY_MODE = "visitor"
+DEBUG = "false"
 
+# For repository documentation only.
+# In Cloudflare Dashboard GUI, attach the real D1 database using binding name DB.
 [[d1_databases]]
 binding = "DB"
 database_name = "github-page-insights"

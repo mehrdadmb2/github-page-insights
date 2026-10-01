@@ -1,5 +1,4 @@
-CREATE TABLE IF NOT EXISTS events (
-  id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY,
   received_at TEXT NOT NULL,
   occurred_at TEXT NOT NULL,
   event_type TEXT NOT NULL,
@@ -7,6 +6,8 @@ CREATE TABLE IF NOT EXISTS events (
   platform_id TEXT NOT NULL,
   platform_name TEXT NOT NULL,
   platform_type TEXT NOT NULL DEFAULT 'generic',
+  platform_url TEXT,
+  platform_domain TEXT,
   environment TEXT,
   app_version TEXT,
   sdk_name TEXT,
@@ -68,11 +69,6 @@ CREATE TABLE IF NOT EXISTS events (
   request_host TEXT,
   request_path TEXT,
   request_query TEXT,
-  request_content_type TEXT,
-  request_content_length INTEGER,
-  accept_header TEXT,
-  accept_encoding TEXT,
-  origin_header TEXT,
   cf_ray TEXT,
   tls_version TEXT,
   client_tcp_rtt INTEGER,
@@ -97,5 +93,4 @@ CREATE TABLE IF NOT EXISTS events (
   cf_json TEXT NOT NULL DEFAULT '{}',
   request_json TEXT NOT NULL DEFAULT '{}',
   payload_json TEXT NOT NULL DEFAULT '{}',
-  raw_event_json TEXT NOT NULL DEFAULT '{}'
-);
+  raw_event_json TEXT NOT NULL DEFAULT '{}');

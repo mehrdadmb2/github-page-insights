@@ -1,5 +1,4 @@
-CREATE TABLE IF NOT EXISTS platform_visitors (
-  platform_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS platform_visitors (platform_id TEXT NOT NULL,
   visitor_id TEXT NOT NULL,
   user_id TEXT,
   anonymous_id TEXT,
@@ -37,5 +36,5 @@ CREATE TABLE IF NOT EXISTS platform_visitors (
   last_page_url TEXT,
   last_path TEXT,
   last_referrer TEXT,
-  metadata_json TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(platform_id, visitor_id)
-);
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY(platform_id, visitor_id));
