@@ -1,9 +1,0 @@
-{
-  "name": "@github-page-insights/cloudflare-auto-build",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "bin": {
-    "auto": "cli.mjs"
-  }
-}
