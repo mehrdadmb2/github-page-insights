@@ -1,4 +1,4 @@
-const VERSION = "10.2.0";
+const VERSION = "10.2.1";
 const SERVICE = "universal-event-insights-worker";
 const GH_API = "https://api.github.com";
 const GH_API_VERSION = "2026-03-10";

@@ -4,7 +4,7 @@ window.PAGE_INSIGHTS_CONFIG = {
   platformName: "GitHub Page Insights Dashboard",
   platformType: "web-dashboard",
   environment: "production",
-  appVersion: "10.2.0",
+  appVersion: "10.2.1",
   githubOwner: "mehrdadmb2",
   githubRepo: "github-page-insights",
   githubBranch: "main",

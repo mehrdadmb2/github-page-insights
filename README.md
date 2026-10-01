@@ -1149,7 +1149,7 @@ Example:
 {
   "ok": true,
   "accepted": true,
-  "version": "10.2.0",
+  "version": "10.2.1",
   "requestId": "...",
   "eventId": "evt-123",
   "platformId": "my-platform",
@@ -1940,7 +1940,7 @@ The Worker release version and database schema version are reported independentl
 Current project release:
 
 ```text
-Worker: 10.2.0
+Worker: 10.2.1
 D1 schema: 9.0
 API: v1
 ```

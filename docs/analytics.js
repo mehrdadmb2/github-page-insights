@@ -96,7 +96,7 @@
       platformIp,
       source: "browser",
       sdkName: "universal-event-insights-browser",
-      sdkVersion: "10.2.0",
+      sdkVersion: "10.2.1",
       eventType,
       eventId: crypto.randomUUID(),
       timestamp: new Date().toISOString(),

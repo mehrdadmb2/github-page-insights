@@ -166,7 +166,7 @@ https://github-page-insights-worker.game-developer-mb.workers.dev/v1/schema
 باید اعلام کند:
 
 ```text
-workerVersion = 10.2.0
+workerVersion = 10.2.1
 databaseSchema = 9.0
 eventColumnCount = 96
 ```

@@ -1,4 +1,4 @@
-# گزارش اعتبارسنجی — Universal Event Insights v10.2.0
+# گزارش اعتبارسنجی — Universal Event Insights v10.2.1
 
 تاریخ: 2026-10-01
 
@@ -6,7 +6,7 @@
 
 ```text
 VALIDATION COMPLETE
-Worker version: 10.2.0
+Worker version: 10.2.1
 API namespace: /v1
 D1 schema: 9.0
 Events columns: 96

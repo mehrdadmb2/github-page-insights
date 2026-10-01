@@ -1,6 +1,13 @@
+## 10.2.1 — 2026-10-01
+
+- Fixed Cloudflare Workers Builds failure when the Build command was incorrectly set to `auto`.
+- Added `npm run build` as the canonical build command.
+- Added a compatibility `auto` executable backed by the repository build checks.
+- Kept GitHub archive commits isolated from Worker builds through Watch Path guidance.
+
 # Changelog
 
-## 10.2.0 — 2026-10-01
+## 10.2.1 — 2026-10-01
 
 ### Reliability
 - Worker/D1 schema contract is checked before deployment.

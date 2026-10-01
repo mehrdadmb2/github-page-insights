@@ -1,3 +1,14 @@
+## Current incident fix
+
+If the build log says:
+
+```text
+Executing user build command: auto
+/bin/sh: 1: auto: not found
+```
+
+set the Build command in Cloudflare to `npm run build`. This repository also contains a compatibility `auto` binary as a safety net for the old setting, but the standard setting is `npm run build`.
+
 # Cloudflare Workers Builds — Required Repository Configuration
 
 The Worker is intentionally deployed by Cloudflare Workers Builds from GitHub.
@@ -8,7 +19,7 @@ The Worker is intentionally deployed by Cloudflare Workers Builds from GitHub.
 Repository: mehrdadmb2/github-page-insights
 Branch: main
 Root directory: /
-Build command: npm run check
+Build command: npm run build
 Deploy command: npx wrangler deploy
 Preview command: npx wrangler preview
 ```
@@ -21,7 +32,6 @@ Preview command: npx wrangler preview
 worker/*
 wrangler.jsonc
 package.json
-package-lock.json
 scripts/*
 ```
 

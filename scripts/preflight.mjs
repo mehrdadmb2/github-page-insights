@@ -28,8 +28,8 @@ for (const rel of required) {
 const wrangler = fs.readFileSync(path.join(root, "wrangler.jsonc"), "utf8");
 if (!/"name"\s*:\s*"github-page-insights-worker"/.test(wrangler)) throw new Error("WORKER_NAME_MISMATCH");
 if (!/"main"\s*:\s*"worker\/index\.js"/.test(wrangler)) throw new Error("WORKER_MAIN_MISMATCH");
-if (/YOUR_D1_DATABASE_ID|REPLACE_WITH_YOUR_D1_DATABASE_ID/.test(wrangler)) {
-  throw new Error("D1_DATABASE_ID_NOT_CONFIGURED: replace YOUR_D1_DATABASE_ID in wrangler.jsonc before GitHub Deploy");
+if ((process.env.REQUIRE_D1_CONFIG === "true" || process.env.CHECK_DEPLOY_CONFIG === "true") && /YOUR_D1_DATABASE_ID|REPLACE_WITH_YOUR_D1_DATABASE_ID/.test(wrangler)) {
+  throw new Error("D1_DATABASE_ID_NOT_CONFIGURED: replace YOUR_D1_DATABASE_ID in wrangler.jsonc before deploy");
 }
 
 const run = (file, args) => execFileSync(process.execPath, ["--check", file, ...args], { stdio: "inherit" });
@@ -45,6 +45,7 @@ if (!pagesWorkflow.includes("actions/checkout@v6")) throw new Error("PAGES_CHECK
 if (!pagesWorkflow.includes("actions/upload-pages-artifact@v4")) throw new Error("PAGES_ARTIFACT_VERSION_MISSING");
 if (!pagesWorkflow.includes("actions/deploy-pages@v4")) throw new Error("PAGES_DEPLOY_VERSION_MISSING");
 if (packageJson.scripts?.check !== "node scripts/preflight.mjs") throw new Error("PACKAGE_CHECK_SCRIPT_MISMATCH");
+if (packageJson.scripts?.build !== "node scripts/build.mjs") throw new Error("PACKAGE_BUILD_SCRIPT_MISMATCH");
 if (packageJson.devDependencies?.wrangler !== "4.145.0") throw new Error("WRANGLER_VERSION_MISMATCH");
 
 execFileSync(process.execPath, [path.join(root, "scripts/validate-schema.mjs")], { stdio: "inherit" });

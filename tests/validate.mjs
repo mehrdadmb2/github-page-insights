@@ -100,7 +100,7 @@ for (const file of ['worker/index.js','docs/app.js','docs/analytics.js','docs/co
 }
 
 const packageJson = JSON.parse(await text('package.json'));
-if (packageJson.version !== '10.2.0') fail(`package version mismatch: ${packageJson.version}`);
+if (packageJson.version !== '10.2.1') fail(`package version mismatch: ${packageJson.version}`);
 if (packageJson.devDependencies?.wrangler !== '4.145.0') fail(`wrangler version mismatch: ${packageJson.devDependencies?.wrangler}`);
 ok('package.json contract');
 const worker = await text('worker/index.js');
@@ -169,4 +169,4 @@ ok('malformed URL encoding returns 400 instead of crashing');
 if (!apiSchema || typeof apiSchema !== 'object') fail('api schema missing');
 ok('API schema JSON loaded');
 
-console.log(`\nVALIDATION COMPLETE — worker=10.2.0, schema=9.0, events=${eventColumns.length}, runtime smoke tests=PASS`);
+console.log(`\nVALIDATION COMPLETE — worker=10.2.1, schema=9.0, events=${eventColumns.length}, runtime smoke tests=PASS`);
