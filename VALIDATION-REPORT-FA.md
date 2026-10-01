@@ -1,41 +1,104 @@
-# گزارش بررسی نهایی Universal Event Insights v9
+# گزارش اعتبارسنجی — Universal Event Insights v10.2.0
 
-نسخه 9.0.0 قبل از بسته‌بندی از نظر Syntax، ساختار D1، ترتیب ستون‌ها و bindها، مسیرهای اصلی API، آرشیو GitHub و Telegram بررسی شد.
+تاریخ: 2026-10-01
 
-## نتیجه
+## نتیجه نهایی
 
-- Worker JavaScript: PASS
-- Dashboard JavaScript: PASS
-- Browser SDK JavaScript: PASS
-- Dashboard config JavaScript: PASS
-- `events`: 96 ستون
-- `platforms`: 28 ستون
-- `platform_visitors`: 39 ستون
-- `platform_sessions`: 32 ستون
-- تطابق ترتیب ستون‌های Worker و D1: PASS
-- تمام SQLهای 01 تا 46: PASS در SQLite
-- تمام verificationهای 47 تا 55: PASS
-- Event INSERT: 96 placeholder / 96 bind
-- Collect smoke test: PASS
-- Duplicate event / idempotency: PASS
-- `/v1/schema`: PASS
-- `/v1/health`: PASS در محیط شبیه‌سازی‌شده
-- malformed URL encoding: کنترل‌شده و 400
-- GitHub archive 201: PASS در Mock
-- Telegram setup/test/webhook: PASS در Mock
+```text
+VALIDATION COMPLETE
+Worker version: 10.2.0
+API namespace: /v1
+D1 schema: 9.0
+Events columns: 96
+Platforms columns: 28
+Visitors columns: 39
+Sessions columns: 32
+Archive columns: 9
+Notification columns: 7
+Runtime smoke tests: PASS
+```
 
-## علت اصلی خرابی v8
+## بررسی‌های انجام‌شده
 
-در مسیر ذخیره‌سازی v8 بین تعداد ستون‌ها، placeholderها و مقدارهای `bind()` برای چند INSERT عدم تطابق وجود داشت. در v9، لیست ستون‌های Event و SQL مربوط به INSERT از یک آرایه ثابت ساخته می‌شوند و تست runtime نیز این تطابق را کنترل می‌کند.
+### JavaScript syntax
 
-## محدودیت مهم D1
+```text
+worker/index.js   PASS
+docs/app.js       PASS
+docs/analytics.js PASS
+docs/config.js    PASS
+```
 
-تعداد ستون‌های `events` عمداً 96 نگه داشته شده تا زیر سقف 100 ستون هر جدول باقی بماند. جزئیات متغیر نیز در JSONهای `data_json`, `metadata_json`, `headers_json`, `cf_json`, `request_json`, `payload_json`, `raw_event_json` حفظ می‌شوند.
+### Contract
 
-## نکته Cloudflare
+Worker و D1 برای چهار جدول اصلی از نظر نام/ترتیب ستون‌های مورد استفاده تطبیق داده شده‌اند.
 
-اطلاعات `request.cf` فقط روی درخواست واقعی Worker قابل اتکا است و ممکن است در Preview/Playground داشبورد Cloudflare موجود نباشد.
+```text
+events              96 / 96
+platforms           28 / 28
+platform_visitors   39 / 39
+platform_sessions   32 / 32
+```
 
-## نحوه استفاده از این گزارش
+### D1 SQL
 
-این گزارش جای تست Deploy واقعی را نمی‌گیرد. بعد از قرار دادن Worker و Binding روی Cloudflare باید `/v1/health` و یک Event واقعی هم تست شوند.
+Schema و One-Shot SQL با SQLite به‌صورت کامل parse/execute شدند و خطای syntax یا ترتیب dependency مشاهده نشد.
+
+### Runtime smoke tests
+
+```text
+Sample event storage              PASS
+Duplicate event idempotency       PASS
+/v1/schema                         PASS
+/v1/health                         PASS
+Malformed URL handling             PASS
+API schema loading                 PASS
+```
+
+### OpenAPI
+
+`docs/openapi.yaml` با parser YAML بررسی شد و مسیر `/v1/events` اکنون فقط یک بار تعریف شده و هم `GET` و هم `POST` را در همان path دارد.
+
+## مورد شخصی‌سازی‌شده قبل از اولین Cloudflare Build
+
+فایل `wrangler.jsonc` عمداً دارای placeholder زیر است:
+
+```text
+YOUR_D1_DATABASE_ID
+```
+
+این مقدار باید یک‌بار با UUID واقعی D1 جایگزین شود. این UUID Secret نیست، اما مخصوص حساب Cloudflare صاحب پروژه است و نمی‌توان آن را از روی نام دیتابیس حدس زد.
+
+پس از ثبت UUID و یک‌بار تنظیم Workers Builds در Cloudflare، روند عادی به این شکل خواهد بود:
+
+```text
+GitHub push
+   ↓
+Cloudflare Workers Builds
+   ↓
+npm run check
+   ↓
+npx wrangler deploy
+   ↓
+Worker updated
+```
+
+و برای جلوگیری از حلقه Deploy، مسیرهای زیر نباید Build Worker را trigger کنند:
+
+```text
+data/*
+docs/*
+db/*
+tests/*
+.github/*
+*.md
+LICENSE
+```
+
+## GitHub Pages
+
+داشبورد از طریق GitHub Actions منتشر می‌شود و workflow آن فقط با تغییرات `docs/**` یا خود workflow فعال می‌شود. بنابراین commitهای آرشیو telemetry در `data/**` باعث rebuild دوباره Pages نمی‌شوند.
+
+## نکته امنیتی
+
+Tokenها و Secretها نباید در GitHub commit شوند. Worker Secrets باید یک‌بار در Cloudflare تنظیم شوند. Snapshotهای headers/request/payload نیز قبل از ذخیره با redaction پردازش می‌شوند.

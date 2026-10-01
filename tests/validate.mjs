@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fail = message => { throw new Error(message); };
 const ok = message => console.log(`PASS  ${message}`);
 
@@ -47,8 +47,11 @@ class MockStatement {
 }
 
 class MockD1 {
-  constructor(eventColumns) {
+  constructor(eventColumns, platformColumns, visitorColumns, sessionColumns) {
     this.eventColumns = eventColumns;
+    this.platformColumns = platformColumns;
+    this.visitorColumns = visitorColumns;
+    this.sessionColumns = sessionColumns;
     this.events = new Map();
     this.tables = new Set(['schema_meta','platforms','platform_visitors','platform_sessions','events','event_archives','notification_log']);
   }
@@ -82,6 +85,9 @@ class MockD1 {
     const n = sql.replace(/\s+/g,' ').trim().toUpperCase();
     if (n.includes('FROM SQLITE_MASTER')) return {results:[...this.tables].map(name=>({name}))};
     if (n.startsWith('PRAGMA TABLE_INFO(EVENTS)')) return {results:this.eventColumns.map((name,cid)=>({cid,name}))};
+    if (n.startsWith('PRAGMA TABLE_INFO(PLATFORMS)')) return {results:this.platformColumns.map((name,cid)=>({cid,name}))};
+    if (n.startsWith('PRAGMA TABLE_INFO(PLATFORM_VISITORS)')) return {results:this.visitorColumns.map((name,cid)=>({cid,name}))};
+    if (n.startsWith('PRAGMA TABLE_INFO(PLATFORM_SESSIONS)')) return {results:this.sessionColumns.map((name,cid)=>({cid,name}))};
     if (n.includes('FROM EVENTS') || n.includes('FROM PLATFORMS') || n.includes('FROM PLATFORM_')) return {results:[]};
     return {results:[]};
   }
@@ -93,8 +99,13 @@ for (const file of ['worker/index.js','docs/app.js','docs/analytics.js','docs/co
   ok(`syntax ${file}`);
 }
 
+const packageJson = JSON.parse(await text('package.json'));
+if (packageJson.version !== '10.2.0') fail(`package version mismatch: ${packageJson.version}`);
+if (packageJson.devDependencies?.wrangler !== '4.145.0') fail(`wrangler version mismatch: ${packageJson.devDependencies?.wrangler}`);
+ok('package.json contract');
 const worker = await text('worker/index.js');
 const schema = await text('db/schema-v9.sql');
+const apiSchema = JSON.parse(await text('docs/api-schema.json'));
 const eventColumns = parseQuotedArray(worker,'EVENT_COLUMNS');
 const platformColumns = parseQuotedArray(worker,'PLATFORM_COLUMNS');
 const visitorColumns = parseQuotedArray(worker,'VISITOR_COLUMNS');
@@ -107,7 +118,7 @@ if (JSON.stringify(eventColumns)!==JSON.stringify(expectedEvent)) fail('EVENT_CO
 if (JSON.stringify(platformColumns)!==JSON.stringify(expectedPlatform)) fail('PLATFORM_COLUMNS differs from schema');
 if (JSON.stringify(visitorColumns)!==JSON.stringify(expectedVisitor)) fail('VISITOR_COLUMNS differs from schema');
 if (JSON.stringify(sessionColumns)!==JSON.stringify(expectedSession)) fail('SESSION_COLUMNS differs from schema');
-if (eventColumns.length > 100) fail(`events has ${eventColumns.length} columns`);
+if (eventColumns.length !== 96) fail(`events has ${eventColumns.length} columns`);
 ok(`schema/worker column alignment events=${eventColumns.length}, platforms=${platformColumns.length}, visitors=${visitorColumns.length}, sessions=${sessionColumns.length}`);
 
 // 2) execute complete schema + console DDL with SQLite
@@ -128,7 +139,7 @@ ok('schema + console DDL executes in SQLite');
 
 // 3) runtime-like Worker collect path with bind validation
 const mod = await import(path.join(ROOT,'worker/index.js'));
-const db = new MockD1(eventColumns);
+const db = new MockD1(eventColumns, platformColumns, visitorColumns, sessionColumns);
 const env = {
   DB: db,
   GITHUB_ARCHIVE_ENABLED: 'false',
@@ -138,7 +149,7 @@ const env = {
 const sample = JSON.parse(await text('tests-SAMPLE-EVENT.json'));
 const r1 = await mod.default.fetch(new Request('https://worker.example/v1/events',{method:'POST',headers:{'content-type':'application/json','CF-Connecting-IP':'203.0.113.10'},body:JSON.stringify(sample)}),env,{});
 const b1 = await r1.json();
-if (r1.status !== 202 || b1.accepted !== true || b1.stored?.d1 !== true) fail(`sample event unexpected response ${r1.status}`);
+if (![201,202].includes(r1.status) || b1.accepted !== true || b1.stored?.d1 !== true) fail(`sample event unexpected response ${r1.status}`);
 ok('sample event collect path stores D1 event and survives disabled archive');
 const r2 = await mod.default.fetch(new Request('https://worker.example/v1/events',{method:'POST',headers:{'content-type':'application/json','CF-Connecting-IP':'203.0.113.10'},body:JSON.stringify(sample)}),env,{});
 const b2 = await r2.json();
@@ -155,4 +166,7 @@ const r5 = await mod.default.fetch(new Request('https://worker.example/v1/platfo
 if (r5.status!==400) fail(`malformed encoded platform path expected 400 got ${r5.status}`);
 ok('malformed URL encoding returns 400 instead of crashing');
 
-console.log(`\nVALIDATION COMPLETE — events=${eventColumns.length}, limits-safe=<100, runtime smoke tests=PASS`);
+if (!apiSchema || typeof apiSchema !== 'object') fail('api schema missing');
+ok('API schema JSON loaded');
+
+console.log(`\nVALIDATION COMPLETE — worker=10.2.0, schema=9.0, events=${eventColumns.length}, runtime smoke tests=PASS`);

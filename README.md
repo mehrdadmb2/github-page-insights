@@ -1,68 +1,48 @@
-# 🌌 Universal Event Insights v9
+# 🌌 Universal Event Insights
 
-> Universal, request-driven telemetry and analytics infrastructure for websites, GitHub Pages, APIs, Telegram bots, mobile apps, desktop apps, SaaS products, scripts, automation sources and any client capable of sending JSON.
+**Universal Event Insights** is a request-driven telemetry and analytics platform designed to receive events from almost any client, normalize and enrich them at the Cloudflare edge, store them in Cloudflare D1, archive individual events into GitHub, expose a versioned HTTP API, and visualize the resulting data in a GitHub Pages control plane.
 
-**Service:** `Universal Event Insights`
+It is intentionally **not limited to GitHub Pages**.
 
-**Worker:**
+A sender can be a:
 
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev
-```
+- website or GitHub Pages site
+- REST/GraphQL API
+- Telegram/Discord bot
+- mobile or desktop application
+- SaaS product
+- internal tool
+- Python script
+- automation workflow
+- webhook source
+- IoT/edge client
+- custom application with its own event model
 
-**Primary collector:**
-
-```http
-POST /v1/events
-```
-
-**Version:** `9.0.0`
-
-**Architecture:** Cloudflare Worker + D1 + GitHub per-event archive + optional Telegram bot
-
-**Scheduled Trigger / Cron:** not required
+The stable namespace for all data is `platformId`.
 
 ---
 
+## فارسی — شروع سریع
 
-> **مهم — D1 Console v9.1:** برای نصب عادی فقط `db/console/INSTALL/ (legacy GUI fallback)` را به ترتیب اجرا کنید و بعد `db/console/VERIFY/` را اجرا کنید. `db/console/RESET/` مخرب است و در نصب عادی نباید اجرا شود. فایل `db/schema-v9.sql` فقط مرجع create-only است و برای Console نباید یک‌جا paste شود.
-
-## 1. What this project is
-
-This repository is no longer a GitHub-Pages-only analytics project.
-
-The central abstraction is a dynamic `platformId`.
-
-A platform may be:
+اگر فقط می‌خواهی بدانی از کجا شروع کنی:
 
 ```text
-website
-GitHub Page
-API
-REST service
-GraphQL service
-Telegram bot
-Discord bot
-mobile app
-desktop app
-SaaS product
-CRM
-shop
-internal tool
-Python script
-automation workflow
-webhook source
-IoT gateway
-custom service
-```
-
-The client sends an event to the same Worker:
-
-```http
+Client
+  ↓
 POST /v1/events
+  ↓
+Cloudflare Worker
+  ├── validate + normalize
+  ├── enrich from request / Cloudflare
+  ├── store in D1
+  ├── update platform / visitor / session aggregates
+  ├── archive event to GitHub
+  └── optionally notify Telegram
+  ↓
+GitHub Pages Dashboard
 ```
 
-Minimum payload:
+حداقل Event فقط این را لازم دارد:
 
 ```json
 {
@@ -70,119 +50,307 @@ Minimum payload:
 }
 ```
 
-The Worker automatically:
+نمونه کامل:
 
-1. normalizes the platform identifier;
-2. captures Cloudflare request intelligence when available;
-3. derives missing visitor/session identifiers when possible;
-4. stores the event in D1;
-5. updates the platform, visitor and session aggregate tables;
-6. archives the event as a standalone JSON file in GitHub;
-7. optionally notifies the administrator through Telegram.
+```json
+{
+  "platformId": "my-website",
+  "platformName": "My Website",
+  "platformType": "web",
+  "platformUrl": "https://example.com",
+  "eventType": "pageview",
+  "eventId": "evt-123456",
+  "identity": {
+    "visitorId": "visitor-123",
+    "sessionId": "session-123",
+    "userId": "user-456"
+  },
+  "page": {
+    "url": "https://example.com/dashboard?utm_source=google",
+    "path": "/dashboard",
+    "title": "Dashboard"
+  },
+  "data": {
+    "customValue": 42
+  },
+  "metadata": {
+    "environment": "production"
+  }
+}
+```
 
-No hard-coded platform list is required.
+پس از اولین event، Worker به‌صورت خودکار پلتفرم را ایجاد می‌کند و event را در namespace مربوط به همان `platformId` قرار می‌دهد.
 
 ---
 
-# 2. v9 design goals
+# English — Complete Guide
 
-The v9 release was rebuilt around several reliability rules:
+## 1. Service Information
 
-- **The event itself is the source of truth.**
-- **Aggregate tables are secondary indexes/views of event activity.**
-- **Custom application data is preserved in JSON.**
-- **Raw client IP is stored when Cloudflare exposes it.**
-- **IP hash is stored alongside the raw IP.**
-- **Platform IP is stored separately from client IP.**
-- **Credential-like fields are redacted from JSON snapshots.**
-- **GitHub archive failures never delete the D1 event.**
-- **No Cron is necessary for collection.**
-- **All platform folders are generated dynamically.**
-- **D1 event INSERT bind order is generated from the schema column list to prevent column/value drift.**
+### Production Worker
 
-Cloudflare D1 currently limits a table to 100 columns, a row/string/blob to 2 MB, and bound parameters in a query to 100. v9 deliberately keeps `events` at 96 columns and the event INSERT at 96 parameters. See the official limits reference:
+```text
+https://github-page-insights-worker.game-developer-mb.workers.dev
+```
 
-https://developers.cloudflare.com/d1/platform/limits/
+### Primary collector
+
+```http
+POST /v1/events
+```
+
+Full URL:
+
+```text
+https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
+```
+
+### Live machine-readable contract
+
+```http
+GET /v1/schema
+```
+
+This endpoint is the authoritative runtime API contract. Humans can read this README, but integrations and AI agents should fetch `/v1/schema` before generating client code.
+
+### Dashboard
+
+The repository's `docs/` directory is the GitHub Pages control plane.
+
+---
+
+# 2. Design Goals
+
+The project is built around several rules:
+
+1. **Universal input** — a platform can send only `platformId`, or send a rich event with nested structures and arbitrary application data.
+2. **Data preservation** — standard values are normalized into relational columns while `data_json`, `metadata_json`, `payload_json`, and sanitized request snapshots retain additional context.
+3. **Edge enrichment** — the Worker uses request headers and Cloudflare request metadata when available.
+4. **D1 first** — D1 is the live relational analytics store.
+5. **GitHub archive** — one event is archived as one JSON file under `data/platforms/...`.
+6. **No Cron requirement** — collection is triggered by the incoming request; no Scheduled Worker is required for normal ingestion.
+7. **Idempotency** — a client-generated `eventId` can make retries safe. A repeated event ID is treated as a duplicate instead of creating a second event.
+8. **Graceful degradation** — the event itself is stored before the asynchronous archive step. Archive or aggregate problems are reported instead of silently pretending everything succeeded.
+9. **Human + AI friendly** — the repository contains runtime schema metadata, an OpenAPI contract, integration examples, and a strict AI integration guide.
 
 ---
 
 # 3. Architecture
 
 ```text
-                         ANY CLIENT
-      ┌────────────────────────────────────────────────┐
-      │ Website / GitHub Page / API / Bot / App / SDK │
-      │ Python / SaaS / Automation / Custom Service   │
-      └──────────────────────┬─────────────────────────┘
-                             │
-                             │ POST /v1/events
-                             ▼
-                 ┌─────────────────────────────┐
-                 │     Cloudflare Worker       │
-                 │                             │
-                 │ validate                    │
-                 │ normalize                   │
-                 │ enrich CF metadata          │
-                 │ redact secrets               │
-                 │ assign IDs                  │
-                 └─────────────┬───────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         ANY EVENT SOURCE                            │
+│                                                                     │
+│ Web · API · Bot · Mobile · Desktop · Python · SaaS · Automation    │
+└──────────────────────────────┬──────────────────────────────────────┘
                                │
-                ┌──────────────┼───────────────┐
-                │              │               │
-                ▼              ▼               ▼
-        ┌────────────┐  ┌──────────────┐  ┌──────────────┐
-        │    D1      │  │    GitHub    │  │   Telegram   │
-        │            │  │              │  │              │
-        │ live data  │  │ event archive│  │ notifications│
-        └──────┬─────┘  └──────────────┘  └──────────────┘
-               │
-               ▼
-        ┌─────────────────────┐
-        │ Dashboard / Clients │
-        │ /v1/platforms       │
-        │ /v1/overview        │
-        │ /v1/platforms/...   │
-        │ /v1/events          │
-        └─────────────────────┘
+                               │ POST /v1/events
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       CLOUDFLARE WORKER                             │
+│                                                                     │
+│ validate → normalize → enrich → redact sensitive headers            │
+│ → D1 event insert → aggregate update → background archive           │
+│ → optional Telegram notification                                   │
+└───────────────────────┬───────────────────┬─────────────────────────┘
+                        │                   │
+                        ▼                   ▼
+                ┌─────────────┐     ┌─────────────────┐
+                │ Cloudflare  │     │ GitHub Contents │
+                │ D1          │     │ API             │
+                │             │     │                 │
+                │ live data   │     │ JSON archive    │
+                └──────┬──────┘     └────────┬────────┘
+                       │                     │
+                       └──────────┬──────────┘
+                                  ▼
+                     ┌──────────────────────────┐
+                     │ GitHub Pages Dashboard   │
+                     │ docs/                    │
+                     └──────────────────────────┘
+                                  │
+                                  ▼
+                           Telegram Bot
+                            (optional)
 ```
 
-D1 is the live query layer. GitHub is the human-readable, per-event archive. The dashboard reads Worker endpoints and never contains GitHub or Cloudflare secrets.
+### Why D1 + GitHub?
+
+D1 is optimized for application queries and aggregate analytics. GitHub is useful as a browsable, versioned event archive. The Worker does **not** scan the repository for every dashboard refresh.
 
 ---
 
-# 4. Repository structure
+# 4. Automatic GitHub → Cloudflare Deployment
+
+This repository is designed for **Cloudflare Workers Builds connected to GitHub**.
+
+Once the one-time Cloudflare connection is correctly configured, a push to the production branch can automatically build and deploy the Worker.
+
+Cloudflare's current Git integration documentation states that a connected Git repository can automatically deploy the Worker on push. The Worker name in the Cloudflare project must match the `name` in the Wrangler configuration. See:
+
+- https://developers.cloudflare.com/workers/ci-cd/builds/
+- https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/
+- https://developers.cloudflare.com/workers/ci-cd/builds/configuration/
+
+## Important: build-loop prevention
+
+The Worker writes archive files into the **same GitHub repository**:
 
 ```text
-github-page-insights-universal-v9/
+data/platforms/<platformId>/events/YYYY/MM/DD/*.json
+```
+
+If Workers Builds watches the entire repository, every archive commit can trigger another Worker build. That can create a deployment loop and unnecessary builds.
+
+Cloudflare provides **Build watch paths** specifically for this problem. Configure the Worker so only code/config changes trigger a Worker build.
+
+Recommended **Include paths**:
+
+```text
+worker/*
+wrangler.jsonc
+package.json
+package-lock.json
+scripts/*
+```
+
+Recommended **Exclude paths**:
+
+```text
+data/*
+docs/*
+db/*
+tests/*
+.github/*
+README.md
+*.md
+LICENSE
+```
+
+Cloudflare evaluates excludes before includes. Current documentation:
+
+https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/
+
+### One-time Workers Builds settings
+
+Cloudflare Dashboard:
+
+```text
+Workers & Pages
+→ github-page-insights-worker
+→ Settings
+→ Builds
+```
+
+Set:
+
+| Setting | Value |
+|---|---|
+| Git repository | `mehrdadmb2/github-page-insights` |
+| Production branch | `main` |
+| Root directory | `/` |
+| Build command | `npm run check` |
+| Deploy command | `npx wrangler deploy` |
+| Preview command | `npx wrangler preview` |
+
+The deploy command is intentionally the normal Wrangler deployment command. Workers Builds uses the Wrangler version declared by this project's `package.json`.
+
+### Why the root is `/`
+
+The Wrangler config is deliberately at repository root:
+
+```text
+wrangler.jsonc
+```
+
+and points to:
+
+```text
+worker/index.js
+```
+
+This avoids the previous monorepo/root mismatch problem.
+
+### Secrets for Worker runtime vs build authentication
+
+There are two different classes of credentials:
+
+**Runtime secrets** used by the Worker:
+
+```text
+GITHUB_TOKEN
+ADMIN_KEY
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
+```
+
+**Workers Builds deployment authentication** is managed by Cloudflare's build system. Do not put a Cloudflare API token into this repository just to make `wrangler deploy` work from Workers Builds.
+
+---
+
+# 5. GitHub Pages Deployment
+
+The dashboard is deployed with GitHub Actions from `docs/`.
+
+The workflow is:
+
+```text
+.github/workflows/pages.yml
+```
+
+It is intentionally triggered only when `docs/**` changes (or the Pages workflow itself changes).
+
+This matters because every archived telemetry event may create a Git commit under `data/`; those commits should **not** rebuild the dashboard.
+
+## One-time Pages setting
+
+Open:
+
+```text
+GitHub
+→ Repository
+→ Settings
+→ Pages
+→ Build and deployment
+→ Source
+→ GitHub Actions
+```
+
+The workflow uploads:
+
+```text
+docs/
+```
+
+and deploys it with GitHub Pages.
+
+Official GitHub reference:
+
+https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+
+---
+
+# 6. Repository Structure
+
+```text
+github-page-insights/
+│
+├── .github/
+│   └── workflows/
+│       └── pages.yml
 │
 ├── data/
 │   └── platforms/
-│       └── .gitkeep
+│       └── <platformId>/
+│           └── events/
+│               └── YYYY/MM/DD/*.json
 │
 ├── db/
-│   ├── schema.sql
 │   ├── schema-v9.sql
+│   ├── schema.sql
 │   ├── SCHEMA-V9-CATALOG-FA.md
-│   └── console/
-│       ├── 00_README.txt
-│       ├── 01_drop_notification_log.sql
-│       ├── 02_drop_event_archives.sql
-│       ├── 03_drop_events.sql
-│       ├── 04_drop_platform_sessions.sql
-│       ├── 05_drop_platform_visitors.sql
-│       ├── 06_drop_platforms.sql
-│       ├── 07_drop_schema_meta.sql
-│       ├── 08_create_schema_meta.sql
-│       ├── 09_create_platforms.sql
-│       ├── 10_create_platform_visitors.sql
-│       ├── 11_create_platform_sessions.sql
-│       ├── 12_create_events.sql
-│       ├── 13_create_event_archives.sql
-│       ├── 14_create_notification_log.sql
-│       ├── 15-44_index_*.sql
-│       ├── 45_seed_schema.sql
-│       ├── 46_seed_service.sql
-│       └── 47-55_verify_*.sql
+│   └── UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql
 │
 ├── docs/
 │   ├── index.html
@@ -191,340 +359,501 @@ github-page-insights-universal-v9/
 │   ├── analytics.js
 │   ├── config.js
 │   ├── api-schema.json
-│   └── logo.svg
+│   ├── openapi.yaml
+│   ├── logo.svg
+│   └── .nojekyll
+│
+├── scripts/
+│   ├── preflight.mjs
+│   ├── validate-schema.mjs
+│   └── windows/
+│       ├── ...
+│
+├── tests/
+│   └── validate.mjs
 │
 ├── worker/
-│   ├── index.js
-│   ├── package.json
-│   └── wrangler.toml
+│   └── index.js
 │
-├── tests-SAMPLE-EVENT.json
-├── SETUP-GUI-FA.md
+├── wrangler.jsonc
+├── package.json
 ├── README.md
-└── LICENSE
+├── AI-INTEGRATION.md
+├── SECURITY.md
+├── SETUP-GITHUB-CLOUDFLARE-FA.md
+├── SETUP-WRANGLER-WINDOWS-FA.md
+└── VALIDATION-REPORT-FA.md
 ```
 
 ---
 
-# 5. D1 database model
+# 7. D1 Database
 
-## 5.1 `schema_meta`
+## Current logical schema
 
-Stores installation metadata such as:
-
-```text
-schema_version = 9.0
-service = universal-event-insights-worker
-```
-
-## 5.2 `platforms`
-
-One row per dynamic platform.
-
-Stores:
-
-- platform ID
-- display name
-- platform type
-- platform URL/domain
-- environment
-- app version
-- SDK name/version
-- source
-- first/last seen
-- total events
-- pageviews
-- sessions
-- visitors
-- last client IP
-- last platform IP
-- last geo summary
-- last event
-- optional platform API-key hash
-- platform metadata
-- capability metadata
-
-## 5.3 `platform_visitors`
-
-One row per `(platform_id, visitor_id)`.
-
-Stores the latest visitor intelligence:
-
-- user ID
-- anonymous ID
-- first/last seen
-- raw IP and IP hash
-- country / region / city / continent
-- Cloudflare colo
-- ASN / organization
-- latitude / longitude
-- postal code
-- timezone / language
-- user agent
-- browser / browser version
-- OS / OS version
-- device / vendor / model
-- screen and viewport dimensions
-- DPR and color depth
-- last page/path/referrer
-- metadata JSON
-
-## 5.4 `platform_sessions`
-
-One row per `(platform_id, session_id)`.
-
-Stores:
-
-- visitor identity
-- first/last seen
-- duration
-- event count
-- pageviews
-- maximum scroll
-- clicks
-- outbound clicks
-- latest IP information
-- latest geo information
-- browser / OS / device
-- last page/path/referrer
-- metadata JSON
-
-## 5.5 `events`
-
-This is the primary telemetry table.
-
-v9 contains **96 columns**.
-
-The full catalog is available here:
+The project uses:
 
 ```text
-db/SCHEMA-V9-CATALOG-FA.md
+schema_meta
+platforms
+platform_visitors
+platform_sessions
+events
+event_archives
+notification_log
 ```
 
-### Standard information stored by `events`
+The main `events` table has **96 standardized columns**.
+
+The relational schema is deliberately paired with JSON snapshots so that a new integration does not require a new database column every time it invents a new application field.
+
+## Standard Event data groups
+
+### Event identity
 
 ```text
-Event identity
-    id
-    received_at
-    occurred_at
-    event_type
-    event_version
-
-Platform
-    platform_id
-    platform_name
-    platform_type
-    platform_url
-    platform_domain
-    environment
-    app_version
-    sdk_name
-    sdk_version
-    source
-
-Identity
-    user_id
-    session_id
-    visitor_id
-    anonymous_id
-    trace_id
-    request_id
-
-Page / resource
-    page_url
-    path
-    query_string
-    title
-    referrer
-    referrer_host
-
-Locale
-    language
-    accept_language
-    timezone
-
-Geo / Cloudflare
-    country
-    region
-    region_code
-    city
-    continent
-    colo
-    asn
-    as_organization
-    latitude
-    longitude
-    postal_code
-    metro_code
-
-Network identity
-    ip
-    ip_hash
-    platform_ip
-    forwarded_for
-    ip_source
-
-Client
-    user_agent
-    browser
-    browser_version
-    os
-    os_version
-    device
-    device_vendor
-    device_model
-
-Screen
-    screen_width
-    screen_height
-    viewport_width
-    viewport_height
-    device_pixel_ratio
-    color_depth
-
-Connection
-    connection_type
-    connection_downlink
-    connection_rtt
-    connection_save_data
-
-Request
-    http_method
-    request_url
-    request_scheme
-    request_host
-    request_path
-    request_query
-
-Cloudflare / security signals
-    cf_ray
-    tls_version
-    client_tcp_rtt
-    client_quic_rtt
-    bot_score
-    verified_bot
-    ja3
-    ja4
-
-Application response / engagement
-    response_status
-    duration_ms
-    max_scroll
-    clicks
-    outbound_clicks
-
-Marketing
-    utm_source
-    utm_medium
-    utm_campaign
-    utm_term
-    utm_content
-
-Preserved JSON
-    data_json
-    metadata_json
-    headers_json
-    cf_json
-    request_json
-    payload_json
-    raw_event_json
+id
+received_at
+occurred_at
+event_type
+event_version
+request_id
+trace_id
 ```
 
-### Why JSON fields are still necessary
-
-Universal integrations inevitably send data that is specific to their application.
-
-Example:
-
-```json
-{
-  "platformId": "crm",
-  "eventType": "invoice_opened",
-  "data": {
-    "customerId": "C-1020",
-    "invoiceId": "INV-9001",
-    "amount": 125000,
-    "currency": "IRR"
-  }
-}
-```
-
-The standard analytics columns remain query-friendly while `data_json`, `metadata_json`, `payload_json` and `raw_event_json` preserve the application-specific information.
-
----
-
-# 6. IP storage model
-
-The project keeps these concepts separate:
-
-### `ip`
-
-The client IP observed by the Worker, normally from Cloudflare's request metadata/header path when exposed.
-
-### `ip_hash`
-
-A SHA-256 hash scoped by platform ID and client IP:
+### Platform
 
 ```text
-SHA-256(platformId + "|" + clientIp)
+platform_id
+platform_name
+platform_type
+platform_url
+platform_domain
+environment
+app_version
+sdk_name
+sdk_version
+source
+platform_ip
 ```
 
-### `platform_ip`
-
-An IP explicitly supplied by the sending platform, for example a backend service IP.
-
-The Worker cannot magically infer the backend/server IP of an arbitrary application from a browser request, so the platform may send its own value.
-
-Cloudflare documents `request.cf` properties including ASN, ASN organization, city, continent, latitude, longitude, postal code, metro code, region, region code, timezone, TLS version and RTT-related fields. The Cloudflare dashboard/Playground preview does not provide `request.cf` in its preview editor, so those fields must be tested through an actual deployed Worker request.
-
-Reference:
-
-https://developers.cloudflare.com/workers/runtime-apis/request/
-
----
-
-# 7. Sensitive data handling
-
-The Worker intentionally preserves telemetry detail while removing obvious credentials from snapshots.
-
-Redacted key patterns include:
+### Identity
 
 ```text
-password
-passwd
-secret
-token
-authorization
-cookie
-set-cookie
-api-key
-access-token
-refresh-token
-private-key
-client-secret
-signature
+user_id
+visitor_id
+anonymous_id
+session_id
 ```
 
-Request header snapshots exclude security credentials such as:
+### Page/navigation
+
+```text
+page_url
+path
+query_string
+title
+referrer
+referrer_host
+```
+
+### Localization / UTM
+
+```text
+language
+accept_language
+timezone
+utm_source
+utm_medium
+utm_campaign
+utm_term
+utm_content
+```
+
+### Geo/network identity
+
+```text
+ip
+ip_hash
+forwarded_for
+ip_source
+country
+region
+region_code
+city
+continent
+colo
+asn
+as_organization
+latitude
+longitude
+postal_code
+metro_code
+```
+
+### Browser / OS / device
+
+```text
+user_agent
+browser
+browser_version
+os
+os_version
+device
+device_vendor
+device_model
+```
+
+### Screen / connection
+
+```text
+screen_width
+screen_height
+viewport_width
+viewport_height
+device_pixel_ratio
+color_depth
+connection_type
+connection_downlink
+connection_rtt
+connection_save_data
+```
+
+### HTTP / Cloudflare
+
+```text
+http_method
+request_url
+request_scheme
+request_host
+request_path
+request_query
+cf_ray
+tls_version
+client_tcp_rtt
+client_quic_rtt
+bot_score
+verified_bot
+ja3
+ja4
+response_status
+```
+
+### Engagement
+
+```text
+duration_ms
+max_scroll
+clicks
+outbound_clicks
+```
+
+### Extensible JSON
+
+```text
+data_json
+metadata_json
+headers_json
+cf_json
+request_json
+payload_json
+raw_event_json
+```
+
+## Raw IP
+
+This project intentionally stores:
+
+```text
+ip
+ip_hash
+```
+
+`ip` is the raw client IP observed by the Worker when available.
+
+`ip_hash` is a SHA-256-derived value scoped with the platform ID.
+
+`platform_ip` is separate and means an IP supplied by the sending platform itself; it is **not** magically discovered as the origin server's IP.
+
+## Sensitive request headers
+
+The project intentionally excludes common credentials and secret headers from stored header snapshots, including values associated with:
 
 ```text
 Authorization
 Cookie
 Set-Cookie
-Proxy-Authorization
 X-API-Key
 X-Platform-Key
 X-Admin-Key
+Token
+Secret
+Password
 ```
 
-The project still stores the raw client IP because IP intelligence is an explicit requirement of the analytics design. Apply your own retention/access/privacy policy before production use.
+The event itself remains richly stored, but secret credentials should never be deliberately sent as analytics data.
 
 ---
 
-# 8. Event types
+# 8. Fresh D1 Install / Reset
 
-Built-in normalized event types:
+The project contains a complete one-shot SQL file:
+
+```text
+db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql
+```
+
+It is a **destructive fresh-install script**.
+
+It removes the project's old analytics tables, recreates the current tables and indexes, inserts schema metadata, and runs verification statements.
+
+It intentionally does not touch Cloudflare's internal `_cf_KV` table.
+
+### Using Wrangler from Windows
+
+First authenticate:
+
+```powershell
+npx wrangler login --use-keyring
+npx wrangler whoami
+```
+
+Find the remote D1 database:
+
+```powershell
+npx wrangler d1 list
+```
+
+The D1 `database_id` must be placed in `wrangler.jsonc` for the production binding. Current Wrangler configuration documentation requires a D1 binding to identify the database with its binding name, human-readable database name and database ID.
+
+Then apply the fresh schema remotely:
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --file=./db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql --yes
+```
+
+Official references:
+
+- https://developers.cloudflare.com/d1/wrangler-commands/
+- https://developers.cloudflare.com/d1/get-started/
+
+### Verify schema
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --command="SELECT COUNT(*) AS event_columns FROM pragma_table_info('events');"
+```
+
+Expected:
+
+```text
+96
+```
+
+Then:
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --command="SELECT key,value FROM schema_meta ORDER BY key;"
+```
+
+Expected:
+
+```text
+schema_version | 9.0
+service        | universal-event-insights-worker
+```
+
+---
+
+# 9. Wrangler Configuration
+
+The canonical configuration is:
+
+```text
+wrangler.jsonc
+```
+
+Important fields:
+
+```json
+{
+  "name": "github-page-insights-worker",
+  "main": "worker/index.js",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "github-page-insights",
+      "database_id": "YOUR_REAL_DATABASE_ID"
+    }
+  ]
+}
+```
+
+Replace `YOUR_REAL_DATABASE_ID` once with the actual ID of your D1 database before the repository is built by Cloudflare Workers Builds.
+
+The Worker expects the binding as:
+
+```javascript
+env.DB
+```
+
+Official reference:
+
+https://developers.cloudflare.com/workers/wrangler/configuration/
+
+---
+
+# 10. Runtime Secrets
+
+Recommended runtime secrets:
+
+```text
+GITHUB_TOKEN
+ADMIN_KEY
+```
+
+Optional:
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
+```
+
+### Add a secret with Wrangler
+
+```powershell
+npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put ADMIN_KEY
+```
+
+Telegram:
+
+```powershell
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_ADMIN_CHAT_ID
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+```
+
+Never commit secret values to GitHub.
+
+Official Cloudflare reference:
+
+https://developers.cloudflare.com/workers/configuration/secrets/
+
+---
+
+# 11. Configuration Variables
+
+Current defaults are in `wrangler.jsonc`.
+
+```text
+GITHUB_OWNER=mehrdadmb2
+GITHUB_REPO=github-page-insights
+GITHUB_BRANCH=main
+GITHUB_ARCHIVE_ENABLED=true
+REQUIRE_PLATFORM_KEY=false
+TELEGRAM_ENABLED=false
+TELEGRAM_NOTIFY_MODE=visitor
+DEBUG=false
+```
+
+Telegram is intentionally disabled in the repository's clean initial deployment. Once Telegram secrets are configured, change:
+
+```text
+TELEGRAM_ENABLED=true
+```
+
+and push the change to GitHub.
+
+---
+
+# 12. Universal Event API
+
+## Primary endpoint
+
+```http
+POST /v1/events
+```
+
+Header:
+
+```http
+Content-Type: application/json
+```
+
+The endpoint is intentionally public by default so arbitrary clients can send telemetry without exposing repository credentials.
+
+## Minimum event
+
+```json
+{
+  "platformId": "my-platform"
+}
+```
+
+## Recommended event
+
+```json
+{
+  "platformId": "my-platform",
+  "platformName": "My Platform",
+  "platformType": "web",
+  "platformUrl": "https://example.com",
+  "platformDomain": "example.com",
+  "environment": "production",
+  "appVersion": "2.4.1",
+  "sdkName": "my-sdk",
+  "sdkVersion": "1.0.0",
+  "source": "website",
+  "eventType": "pageview",
+  "eventId": "client-generated-event-id",
+  "timestamp": "2026-10-01T12:00:00.000Z",
+  "identity": {
+    "userId": "user-123",
+    "visitorId": "visitor-123",
+    "anonymousId": "anon-123",
+    "sessionId": "session-123"
+  },
+  "page": {
+    "url": "https://example.com/dashboard",
+    "path": "/dashboard",
+    "title": "Dashboard",
+    "referrer": "https://google.com/"
+  },
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "devicePixelRatio": 1,
+    "colorDepth": 24
+  },
+  "viewport": {
+    "width": 1536,
+    "height": 864
+  },
+  "connection": {
+    "effectiveType": "4g",
+    "downlink": 10,
+    "rtt": 40,
+    "saveData": false
+  },
+  "platformIp": "198.51.100.20",
+  "data": {
+    "businessAction": "dashboard_opened",
+    "recordId": "ABC-123",
+    "amount": 125000
+  },
+  "metadata": {
+    "tenant": "demo",
+    "feature": "analytics"
+  }
+}
+```
+
+## Arbitrary event types
+
+You are not limited to only `pageview`.
+
+Recommended values include:
 
 ```text
 pageview
@@ -542,133 +871,359 @@ error
 custom
 ```
 
-Unknown event types are normalized to:
+Custom event type names are also accepted after normalization. The recommended list is a convention, not a whitelist.
 
-```text
-custom
-```
-
-The original client payload remains available in the JSON snapshots.
-
----
-
-# 9. Primary API
-
-## `POST /v1/events`
-
-Primary universal collection endpoint.
-
-Also supported for compatibility:
-
-```text
-POST /v1/collect
-POST /collect
-```
-
-The endpoint is public by default.
-
-### Minimal request
+Examples:
 
 ```json
 {
-  "platformId": "my-platform"
-}
-```
-
-### Recommended request
-
-```json
-{
-  "platformId": "my-platform",
-  "platformName": "My Platform",
-  "platformType": "web",
-  "platformUrl": "https://example.com",
-  "platformDomain": "example.com",
-  "environment": "production",
-  "appVersion": "2.4.0",
-  "sdkName": "my-sdk",
-  "sdkVersion": "1.0.0",
-  "source": "browser",
-
-  "eventType": "pageview",
-  "eventId": "unique-client-event-id",
-  "timestamp": "2026-10-01T10:00:00.000Z",
-
-  "identity": {
-    "visitorId": "visitor-001",
-    "anonymousId": "anonymous-001",
-    "sessionId": "session-001",
-    "userId": "user-001"
-  },
-
-  "page": {
-    "url": "https://example.com/dashboard",
-    "path": "/dashboard",
-    "queryString": "",
-    "title": "Dashboard",
-    "referrer": "https://google.com/"
-  },
-
-  "screen": {
-    "width": 1920,
-    "height": 1080,
-    "devicePixelRatio": 1,
-    "colorDepth": 24
-  },
-
-  "viewport": {
-    "width": 1536,
-    "height": 864
-  },
-
-  "connection": {
-    "effectiveType": "4g",
-    "downlink": 25,
-    "rtt": 45,
-    "saveData": false
-  },
-
-  "platformIp": "203.0.113.10",
-
-  "durationMs": 4200,
-  "maxScroll": 78,
-  "clicks": 3,
-  "outboundClicks": 1,
-
+  "platformId": "crm",
+  "eventType": "invoice_opened",
   "data": {
-    "customField": "custom-value"
-  },
-
-  "metadata": {
-    "releaseChannel": "stable"
+    "invoiceId": "INV-1001",
+    "customerId": "C-200"
   }
 }
 ```
 
-### Successful response
+or:
 
-A fully healthy event usually returns HTTP `201` when both D1 and GitHub archive succeed.
+```json
+{
+  "platformId": "telegram-bot",
+  "eventType": "command_executed",
+  "data": {
+    "command": "/stats",
+    "chatType": "private"
+  }
+}
+```
+
+---
+
+# 13. Accepted Input Shapes
+
+The Worker accepts both the canonical camelCase form and many snake_case/legacy aliases.
+
+Examples:
+
+```text
+platformId        ← platform_id
+platformName      ← platform_name
+platformType      ← platform_type
+platformUrl       ← platform_url
+platformDomain    ← platform_domain
+eventType         ← event_type / eventName / event_name
+eventId           ← event_id
+visitorId         ← visitor_id
+sessionId         ← session_id
+userId            ← user_id
+anonymousId       ← anonymous_id
+pageUrl           ← page_url
+queryString       ← query_string
+platformIp        ← platform_ip / serverIp / server_ip
+```
+
+Nested aliases are supported for common structures:
+
+```text
+identity.visitorId
+identity.sessionId
+page.url
+page.path
+page.title
+page.referrer
+platform.id
+platform.url
+platform.domain
+network.platformIp
+```
+
+The complete machine-readable alias list is available at:
+
+```text
+docs/api-schema.json
+```
+
+and through:
+
+```http
+GET /v1/schema
+```
+
+---
+
+# 14. cURL
+
+```bash
+curl -X POST "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platformId": "my-platform",
+    "platformName": "My Platform",
+    "platformType": "web",
+    "eventType": "pageview",
+    "eventId": "evt-001",
+    "identity": {
+      "visitorId": "visitor-001",
+      "sessionId": "session-001"
+    },
+    "page": {
+      "url": "https://example.com/dashboard",
+      "path": "/dashboard",
+      "title": "Dashboard"
+    },
+    "data": {
+      "source": "curl"
+    }
+  }'
+```
+
+---
+
+# 15. JavaScript / Browser / Node
+
+```javascript
+const WORKER = "https://github-page-insights-worker.game-developer-mb.workers.dev";
+
+const payload = {
+  platformId: "my-web-app",
+  platformName: "My Web App",
+  platformType: "web",
+  eventType: "pageview",
+  eventId: crypto.randomUUID(),
+  identity: {
+    visitorId: localStorage.getItem("visitor_id") || crypto.randomUUID(),
+    sessionId: sessionStorage.getItem("session_id") || crypto.randomUUID()
+  },
+  page: {
+    url: location.href,
+    path: location.pathname,
+    title: document.title,
+    referrer: document.referrer || null
+  },
+  screen: {
+    width: screen.width,
+    height: screen.height,
+    devicePixelRatio: window.devicePixelRatio || 1,
+    colorDepth: screen.colorDepth || 24
+  },
+  viewport: {
+    width: window.innerWidth,
+    height: window.innerHeight
+  },
+  connection: {
+    effectiveType: navigator.connection?.effectiveType || null,
+    downlink: navigator.connection?.downlink || null,
+    rtt: navigator.connection?.rtt || null,
+    saveData: Boolean(navigator.connection?.saveData)
+  },
+  data: {
+    source: "web"
+  }
+};
+
+const response = await fetch(`${WORKER}/v1/events`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify(payload)
+});
+
+console.log(response.status, await response.json());
+```
+
+---
+
+# 16. Python
+
+```python
+import requests
+import uuid
+
+WORKER = "https://github-page-insights-worker.game-developer-mb.workers.dev"
+
+payload = {
+    "platformId": "python-service",
+    "platformName": "Python Service",
+    "platformType": "service",
+    "eventType": "job_completed",
+    "eventId": str(uuid.uuid4()),
+    "data": {
+        "jobId": "JOB-1001",
+        "success": True,
+        "durationSeconds": 18.4
+    },
+    "metadata": {
+        "environment": "production"
+    }
+}
+
+response = requests.post(
+    f"{WORKER}/v1/events",
+    json=payload,
+    timeout=15,
+)
+
+print(response.status_code)
+print(response.json())
+```
+
+---
+
+# 17. PowerShell
+
+```powershell
+$Worker = "https://github-page-insights-worker.game-developer-mb.workers.dev"
+
+$Payload = @{
+    platformId = "windows-app"
+    platformName = "Windows App"
+    platformType = "desktop"
+    eventType = "app_started"
+    eventId = [guid]::NewGuid().ToString()
+    data = @{
+        source = "PowerShell"
+        version = "1.0.0"
+    }
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod `
+  -Uri "$Worker/v1/events" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body $Payload
+```
+
+---
+
+# 18. Browser Analytics SDK
+
+For a traditional website/GitHub Page, use:
+
+```text
+docs/analytics.js
+```
+
+Example HTML:
+
+```html
+<meta name="page-insights-site-id" content="my-site">
+<meta name="page-insights-site-name" content="My Site">
+<meta name="page-insights-site-type" content="web">
+
+<script src="https://mehrdadmb2.github.io/github-page-insights/analytics.js"></script>
+```
+
+The SDK automatically derives page/browser/screen information where available and sends events to:
+
+```text
+/v1/events
+```
+
+The browser does **not** need your GitHub token or admin key.
+
+### Custom browser event
+
+```javascript
+window.PageInsights?.track?.("button_clicked", {
+  buttonId: "checkout",
+  section: "pricing"
+});
+```
+
+Check `docs/analytics.js` for the exact exported API of the bundled SDK version.
+
+---
+
+# 19. API Responses
+
+## `201 Created`
+
+Normal successful event creation.
+
+Example:
 
 ```json
 {
   "ok": true,
   "accepted": true,
-  "version": "9.0.0",
+  "version": "10.2.0",
   "requestId": "...",
-  "eventId": "...",
+  "eventId": "evt-123",
   "platformId": "my-platform",
+  "eventType": "pageview",
   "stored": {
     "d1": true,
-    "github": true
+    "github": "scheduled"
   }
 }
 ```
 
-If D1 stored the event but the GitHub archive failed, the Worker returns a non-fatal success/accepted response with archive status information instead of losing the event.
+GitHub archiving is commonly performed in the background.
+
+## `200 OK` duplicate
+
+If the same `eventId` already exists:
+
+```json
+{
+  "ok": true,
+  "accepted": true,
+  "duplicate": true
+}
+```
+
+No second event is created.
+
+## `202 Accepted`
+
+The event was accepted/stored in D1, but aggregate processing reported a degraded condition. Inspect:
+
+```text
+d1.aggregateError
+```
+
+and:
+
+```text
+/v1/health
+```
+
+## `400 Bad Request`
+
+Typical causes:
+
+```text
+INVALID_JSON
+EMPTY_BODY
+INVALID_PAYLOAD
+PLATFORM_ID_REQUIRED
+INVALID_PLATFORM_ID
+```
+
+## `401 Unauthorized`
+
+Typical causes:
+
+```text
+UNAUTHORIZED
+PLATFORM_KEY_REQUIRED
+PLATFORM_KEY_INVALID
+```
+
+## `413 Payload Too Large`
+
+The incoming JSON body exceeded the Worker request limit configured by the service.
+
+## `503 Service Unavailable`
+
+A required dependency such as D1 may be unavailable, or a specific optional service endpoint may not be configured.
 
 ---
 
-# 10. Read APIs
+# 20. Read API
 
 ## List platforms
 
@@ -676,34 +1231,65 @@ If D1 stored the event but the GitHub archive failed, the Worker returns a non-f
 GET /v1/platforms
 ```
 
-Returns all dynamically discovered platforms.
+Returns discovered platforms from the `platforms` table.
 
-## Portfolio overview
+## Global overview
 
 ```http
 GET /v1/overview?days=7
 ```
 
-Supported values:
+Supported examples:
 
 ```text
-1
-7
-30
-90
-all
+days=1
+days=7
+days=30
+days=90
+days=365
+days=all
 ```
 
-## Single platform
+Returns:
+
+```text
+totals
+daily
+countries
+browsers
+operatingSystems
+devices
+ips
+platforms
+recentEvents
+```
+
+## One platform
 
 ```http
 GET /v1/platforms/<platformId>?days=7
 ```
 
-Compatibility endpoint:
+Returns:
 
-```http
-GET /api/site/<platformId>?days=7
+```text
+platform
+totals
+daily
+countries
+browsers
+operatingSystems
+devices
+ips
+topPages
+recentEvents
+```
+
+Compatibility aliases:
+
+```text
+GET /api/platform/<platformId>
+GET /api/site/<platformId>
 ```
 
 ## Platform events
@@ -724,45 +1310,198 @@ GET /v1/platforms/<platformId>/visitors?limit=100
 GET /v1/platforms/<platformId>/sessions?limit=100
 ```
 
-## All recent events
+## Global recent events
 
 ```http
 GET /v1/events?days=7&limit=100
 ```
 
-## Machine-readable contract
+Optional filter:
+
+```text
+?platform=my-platform
+```
+
+or the legacy compatibility form:
+
+```text
+?site=my-platform
+```
+
+## Statistics compatibility endpoint
+
+```http
+GET /v1/stats?platform=my-platform&days=7
+```
+
+---
+
+# 21. Machine-Readable API Contract
+
+Use:
 
 ```http
 GET /v1/schema
 ```
 
+The repository also publishes:
+
+```text
+docs/api-schema.json
+docs/openapi.yaml
+```
+
+The runtime contract exposes:
+
+```text
+API version
+Worker version
+Database schema version
+event column count
+collection requirements
+field aliases
+recommended event types
+read endpoints
+admin endpoints
+Telegram endpoints
+archive model
+privacy flags
+```
+
 ---
 
-# 11. Admin APIs
+# 22. Admin API
 
-Admin routes require:
+Admin endpoints require:
 
 ```http
 X-Admin-Key: YOUR_ADMIN_KEY
 ```
 
-Routes:
+## List administrative events
 
-```text
-GET  /v1/admin/events
-GET  /v1/admin/event?id=<eventId>
-GET  /v1/admin/notifications
-POST /v1/admin/archive-retry/<eventId>
-POST /v1/admin/platform-key
+```http
+GET /v1/admin/events?platform=my-platform&days=7&limit=100
 ```
 
-The key is a Worker Secret and must never be placed inside `docs/` or any public client application.
+## Full event detail
+
+```http
+GET /v1/admin/event?id=EVENT_ID
+```
+
+This is intended for internal use and can expose the complete D1 row, including raw IP and stored JSON.
+
+## Notification log
+
+```http
+GET /v1/admin/notifications?limit=50
+```
+
+## Retry one GitHub archive
+
+```http
+POST /v1/admin/archive-retry/EVENT_ID
+```
+
+## Configure a platform key
+
+```http
+POST /v1/admin/platform-key
+Content-Type: application/json
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+Body:
+
+```json
+{
+  "platformId": "my-platform",
+  "platformName": "My Platform",
+  "platformType": "web",
+  "apiKey": "a-long-random-platform-key"
+}
+```
+
+When:
+
+```text
+REQUIRE_PLATFORM_KEY=true
+```
+
+senders must provide:
+
+```http
+X-Platform-Key: a-long-random-platform-key
+```
+
+or:
+
+```http
+X-API-Key: a-long-random-platform-key
+```
+
+Never publish platform keys in frontend JavaScript.
 
 ---
 
-# 12. GitHub archive
+# 23. Telegram
 
-Each event receives a standalone JSON archive file.
+Telegram integration is optional.
+
+Endpoints:
+
+```http
+GET /telegram/setup
+GET /telegram/test
+POST /telegram/webhook
+```
+
+The setup/test endpoints require:
+
+```http
+X-Admin-Key: YOUR_ADMIN_KEY
+```
+
+The webhook uses:
+
+```text
+TELEGRAM_WEBHOOK_SECRET
+```
+
+and the secret header provided by Telegram.
+
+### Recommended order
+
+1. Configure Telegram BotFather.
+2. Store the three Telegram secrets with Wrangler.
+3. Set `TELEGRAM_ENABLED=true`.
+4. Push to GitHub so the connected Worker rebuilds.
+5. Call `/telegram/setup` with `X-Admin-Key`.
+6. Call `/telegram/test` with `X-Admin-Key`.
+7. Send `/start` to the bot.
+
+The bot can expose operational commands such as:
+
+```text
+/start
+/help
+/status
+/health
+/platforms
+/platform <id>
+/stats <id>
+/recent <id>
+/docs
+/id
+/about
+```
+
+---
+
+# 24. GitHub Archive
+
+Each event gets its own JSON file.
 
 Pattern:
 
@@ -773,256 +1512,568 @@ data/platforms/<platformId>/events/YYYY/MM/DD/<timestamp>_<eventId>.json
 Example:
 
 ```text
-data/platforms/my-platform/events/2026/10/01/2026-10-01T10-00-00_unique-event.json
+data/platforms/my-site/events/2026/10/01/2026-10-01T12-30-00Z_evt-123.json
 ```
 
-Advantages:
+The archive contains:
 
-- no shared daily JSON file;
-- different events do not overwrite one another;
-- easy browsing in GitHub;
-- direct raw-file access;
-- easy export to another system;
-- one archive failure does not remove the D1 event.
+```text
+service
+workerVersion
+requestId
+archivedAt
+platform
+storage
+event
+```
 
-GitHub's Contents API supports create/update file operations using fine-grained personal access tokens when repository `Contents: write` is granted. GitHub documents `409` conflicts and other failure codes for this endpoint, which is why v9 retries branch/file conflicts and checks for an already-created archive before declaring failure.
+The event includes the normalized event plus stored telemetry fields and sanitized snapshots.
 
-Reference:
+### Why individual files?
 
-https://docs.github.com/en/rest/repos/contents
+A shared aggregate JSON file would cause repeated GitHub update conflicts when many clients write at the same time. One file per event avoids that shared-file bottleneck and also makes the archive naturally browsable.
+
+### Archive failures
+
+D1 is still the primary live event store.
+
+Archive status is tracked in:
+
+```text
+event_archives
+```
+
+Failed archives can be retried with:
+
+```http
+POST /v1/admin/archive-retry/<eventId>
+```
 
 ---
 
-# 13. GitHub token configuration
+# 25. Using Your Data Later
 
-Create a GitHub fine-grained personal access token for this repository.
+You can consume collected data in several ways.
 
-Required repository permission:
+## From a website
 
-```text
-Contents: Read and write
+```javascript
+const response = await fetch(
+  "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/platforms/my-platform?days=30"
+);
+
+const data = await response.json();
+console.log(data.totals);
+console.log(data.topPages);
+console.log(data.recentEvents);
 ```
 
-The Worker uses the token only as a server-side secret.
+## From Python
 
-The browser dashboard does NOT receive the token.
+```python
+import requests
 
-The target projects using the analytics SDK do NOT need the token.
+WORKER = "https://github-page-insights-worker.game-developer-mb.workers.dev"
+
+data = requests.get(
+    f"{WORKER}/v1/platforms/my-platform",
+    params={"days": 30},
+    timeout=15,
+).json()
+
+print(data["totals"])
+```
+
+## From another GitHub repository
+
+The live API is preferable for analytics queries:
+
+```text
+/v1/platforms
+/v1/overview
+/v1/platforms/<platformId>
+/v1/events
+```
+
+The GitHub archive is preferable when you need raw historical JSON files independent of the live API:
+
+```text
+data/platforms/<platformId>/events/YYYY/MM/DD/*.json
+```
+
+## From D1 directly
+
+With Wrangler:
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --command="SELECT platform_id,event_type,COUNT(*) AS n FROM events GROUP BY platform_id,event_type ORDER BY n DESC;"
+```
 
 ---
 
-# 14. Cloudflare Worker configuration
+# 26. Building a Second Dashboard
 
-In Cloudflare Workers → Settings → Variables and Secrets, configure the following.
+The official `docs/` dashboard is only one consumer.
 
-## Text variables
+You can create another frontend with the same API.
+
+For example:
 
 ```text
-GITHUB_OWNER=mehrdadmb2
-GITHUB_REPO=github-page-insights
-GITHUB_BRANCH=main
-GITHUB_ARCHIVE_ENABLED=true
-REQUIRE_PLATFORM_KEY=false
-TELEGRAM_ENABLED=true
-TELEGRAM_NOTIFY_MODE=visitor
-DEBUG=false
+Your App
+   ↓
+GET /v1/platforms
+   ↓
+GET /v1/platforms/my-platform?days=30
+   ↓
+Render your own UI
 ```
 
-## Secrets
+No GitHub credentials are needed for normal public API reads.
+
+For administrative/private data, use an authenticated backend rather than exposing `ADMIN_KEY` to the browser.
+
+---
+
+# 27. Adding a New Platform
+
+You do **not** edit Worker code to add a normal new platform.
+
+Send:
+
+```json
+{
+  "platformId": "new-platform",
+  "platformName": "New Platform",
+  "platformType": "api",
+  "eventType": "startup"
+}
+```
+
+The Worker creates/updates the platform namespace automatically.
+
+Archive path becomes:
 
 ```text
-GITHUB_TOKEN
-ADMIN_KEY
+data/platforms/new-platform/events/...
+```
+
+This is the key universal behavior of the project.
+
+---
+
+# 28. Data Retention and Privacy
+
+This project is intentionally capable of storing detailed client telemetry, including raw IP when available.
+
+Before deploying it for real users, decide and document:
+
+- lawful basis / user notice where applicable
+- retention period
+- who can access raw IP
+- whether raw IP should be exported to GitHub at all
+- whether public read endpoints should be restricted
+- whether geographic precision should be reduced
+- whether user IDs are personal data in your context
+
+The code redacts common credential-bearing headers, but **it is not a complete privacy-compliance system**.
+
+See:
+
+```text
+SECURITY.md
+```
+
+---
+
+# 29. Error Handling and Resilience
+
+The service is designed so a single dependency problem does not automatically destroy telemetry.
+
+### D1
+
+The Worker stores the event first.
+
+Aggregate tables are updated separately and report degradation when necessary.
+
+### GitHub
+
+The archive writer:
+
+- uses a unique event path
+- supports timeouts
+- retries transient failures
+- handles common rate-limit/server failures
+- attempts to recover files that already exist after a race/timeout
+- records archive state in D1
+- provides an admin retry endpoint
+
+### Frontend
+
+The dashboard uses:
+
+```text
+Promise.allSettled
+request timeouts
+local in-memory display cache
+non-blocking health updates
+error toasts
+fallback rendering
+```
+
+The dashboard can remain visually usable even if one API request fails.
+
+---
+
+# 30. Health and Diagnostics
+
+## Basic health
+
+```http
+GET /v1/health
+```
+
+## Health with GitHub probe
+
+```http
+GET /v1/health?probe=github
+```
+
+The health response includes checks for:
+
+```text
+Worker
+configuration
+D1
+authenticated GitHub access (when probed)
+telemetry freshness
+Telegram configuration
+```
+
+A healthy service is not the same thing as "there is already data". A newly installed empty database can legitimately report a warning about missing telemetry while the Worker and database themselves are healthy.
+
+---
+
+# 31. Windows + Wrangler Workflow
+
+For local maintenance:
+
+```powershell
+npx wrangler login --use-keyring
+npx wrangler whoami
+npx wrangler d1 list
+npx wrangler d1 info github-page-insights
+npm run check
+```
+
+Useful commands:
+
+```powershell
+npm run check
+npm run check:worker
+npm run check:dashboard
+npm run check:contract
+npm run d1:list
+npm run d1:info
+npm run d1:verify
+npm run deploy
+npm run dev
+npm run tail
+```
+
+**Normal production deployment should still happen through Cloudflare Workers Builds after the GitHub repository is connected.**
+
+Use `npm run deploy` / `npx wrangler deploy` as the manual recovery path when you intentionally need it.
+
+---
+
+# 32. Local Development
+
+To install dependencies:
+
+```powershell
+npm install
+```
+
+To run local Worker development:
+
+```powershell
+npm run dev
+```
+
+For safe remote D1 development, prefer a dedicated preview database rather than pointing local development at production data.
+
+Cloudflare's D1 configuration supports a separate `preview_database_id` for local/preview workflows.
+
+---
+
+# 33. Preflight and Validation
+
+Before a production push, run:
+
+```powershell
+npm run check
+```
+
+The validation suite checks:
+
+```text
+required files
+Wrangler worker name/main
+JavaScript syntax
+Worker ↔ D1 column alignment
+96 event columns
+API contract
+sample event path
+idempotency / duplicate event
+health endpoint
+schema endpoint
+malformed URL handling
+Pages workflow path filtering
+```
+
+Run the deeper test suite directly:
+
+```powershell
+node tests/validate.mjs
+```
+
+The repository includes:
+
+```text
+VALIDATION-REPORT-FA.md
+```
+
+---
+
+# 34. AI Integration Guide
+
+AI agents should **not guess the API from memory**.
+
+Recommended procedure:
+
+```text
+1. GET /v1/schema
+2. Read contractVersion / workerVersion / databaseSchema
+3. Read requiredForCollect
+4. Read fieldAliases
+5. Read readEndpoints
+6. Choose a platformId
+7. POST /v1/events
+8. Save requestId + eventId from the response
+9. Use the read endpoint for verification
+10. Only use admin endpoints on a trusted backend
+```
+
+### AI integration rules
+
+```text
+platformId is the stable namespace.
+Do not hard-code a platform list into the Worker.
+Do not invent event column names when custom data can live in data/metadata.
+Prefer a stable eventId for retryable events.
+Never place GITHUB_TOKEN or ADMIN_KEY in frontend code.
+Use /v1/schema as the runtime source of truth.
+Use /v1/platforms to discover existing namespaces.
+Use /v1/platforms/<platformId> for platform analytics.
+Use /v1/events for recent event retrieval.
+Use /v1/admin/* only from a trusted environment.
+```
+
+See also:
+
+```text
+AI-INTEGRATION.md
+```
+
+---
+
+# 35. Copy-Paste Prompt for an AI Coding Agent
+
+```text
+You are integrating a client with Universal Event Insights.
+
+Base URL:
+https://github-page-insights-worker.game-developer-mb.workers.dev
+
+First request:
+GET /v1/schema
+
+Do not guess the API contract.
+Use the live schema response as the authoritative source.
+
+The only mandatory collection field is platformId.
+Generate a stable platformId for this application and keep it unchanged.
+
+Prefer POST /v1/events.
+Use eventId when retries may happen.
+Use eventType for the event type; do not use generic `type` as the event type field unless the live schema explicitly says so.
+
+Put application-specific values under data and metadata.
+Put browser/page/user/session information into the canonical fields or nested identity/page/screen/viewport/connection structures when relevant.
+
+Never put GitHub tokens, admin keys, Telegram tokens, API secrets, passwords, cookies, or authorization headers into frontend code or analytics payloads.
+
+After sending a test event:
+1. verify the response is 201/200/202 as documented;
+2. record requestId and eventId;
+3. verify the platform through GET /v1/platforms/<platformId>;
+4. do not change the Worker just to add a new platform.
+
+If the existing project has an old analytics implementation, migrate it toward the current v1 contract without deleting unrelated application features.
+```
+
+---
+
+# 36. Versioning
+
+The public API namespace is:
+
+```text
+/v1/*
+```
+
+Breaking API changes should use a new major namespace rather than silently changing existing `/v1` semantics.
+
+The Worker release version and database schema version are reported independently.
+
+Current project release:
+
+```text
+Worker: 10.2.0
+D1 schema: 9.0
+API: v1
+```
+
+---
+
+# 37. Troubleshooting
+
+## Worker build fails immediately
+
+Check:
+
+```text
+Worker dashboard name == wrangler.jsonc name
+Root directory == /
+worker/index.js exists
+wrangler.jsonc exists
+D1 database_id is real
+npm run check passes
+```
+
+Cloudflare's current Git integration explicitly requires the Worker name to match the Wrangler configuration.
+
+## Every event causes another Worker deployment
+
+Check:
+
+```text
+Workers & Pages
+→ Worker
+→ Settings
+→ Builds
+→ Build watch paths
+```
+
+Make sure `data/*` is not an included trigger path. Use the recommended include/exclude rules from this README.
+
+## GitHub Pages does not update
+
+Check:
+
+```text
+Settings → Pages → Source = GitHub Actions
+```
+
+Then inspect:
+
+```text
+Actions → Deploy GitHub Pages dashboard
+```
+
+Only changes under `docs/**` should start the Pages workflow.
+
+## D1 schema error
+
+Run:
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --command="SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
+```
+
+Then:
+
+```powershell
+npx wrangler d1 execute github-page-insights --remote --command="SELECT COUNT(*) AS event_columns FROM pragma_table_info('events');"
+```
+
+Expected event column count:
+
+```text
+96
+```
+
+## Event returns `D1_STORE_FAILED`
+
+Use the returned:
+
+```text
+requestId
+eventId
+details
+```
+
+Then:
+
+```powershell
+npx wrangler tail github-page-insights-worker
+```
+
+Look for:
+
+```text
+D1_STORE_FAILED
+D1_AGGREGATE_FAILED
+UNHANDLED_ERROR
+```
+
+## Event is in D1 but not GitHub
+
+Check:
+
+```http
+GET /v1/health?probe=github
+```
+
+Then inspect:
+
+```sql
+SELECT * FROM event_archives ORDER BY created_at DESC LIMIT 20;
+```
+
+Retry one:
+
+```http
+POST /v1/admin/archive-retry/<eventId>
+```
+
+## Telegram is not notifying
+
+Check:
+
+```text
+TELEGRAM_ENABLED
 TELEGRAM_BOT_TOKEN
 TELEGRAM_ADMIN_CHAT_ID
 TELEGRAM_WEBHOOK_SECRET
 ```
 
-Cloudflare's recommended mechanism for sensitive Worker configuration is Worker Secrets:
-
-https://developers.cloudflare.com/workers/configuration/secrets/
-
----
-
-# 15. D1 binding
-
-The Worker expects:
-
-```text
-Binding name: DB
-```
-
-and the binding must point to:
-
-```text
-github-page-insights
-```
-
-In the Cloudflare dashboard:
-
-```text
-Workers & Pages
-→ github-page-insights-worker
-→ Settings
-→ Bindings
-→ Add
-→ D1 database
-→ Variable name: DB
-→ Database: github-page-insights
-```
-
----
-
-# 16. GUI-only database installation
-
-Because the target workflow uses the Cloudflare dashboard GUI, the project contains one-statement SQL files.
-
-Do not paste the full `schema.sql` into the Console for the initial deployment workflow described here.
-
-Run the files in this exact order:
-
-```text
-01_drop_notification_log.sql
-02_drop_event_archives.sql
-03_drop_events.sql
-04_drop_platform_sessions.sql
-05_drop_platform_visitors.sql
-06_drop_platforms.sql
-07_drop_schema_meta.sql
-
-08_create_schema_meta.sql
-09_create_platforms.sql
-10_create_platform_visitors.sql
-11_create_platform_sessions.sql
-12_create_events.sql
-13_create_event_archives.sql
-14_create_notification_log.sql
-
-15_index_idx_events_platform_received.sql
-16_index_idx_events_received.sql
-17_index_idx_events_platform_type.sql
-18_index_idx_events_platform_ip.sql
-19_index_idx_events_ip.sql
-20_index_idx_events_platform_platform_ip.sql
-21_index_idx_events_platform_visitor.sql
-22_index_idx_events_platform_session.sql
-23_index_idx_events_user.sql
-24_index_idx_events_trace.sql
-25_index_idx_events_country.sql
-26_index_idx_events_region.sql
-27_index_idx_events_city.sql
-28_index_idx_events_browser.sql
-29_index_idx_events_os.sql
-30_index_idx_events_device.sql
-31_index_idx_events_path.sql
-32_index_idx_events_referrer.sql
-33_index_idx_events_utm_source.sql
-34_index_idx_events_utm_campaign.sql
-35_index_idx_sessions_last_seen.sql
-36_index_idx_sessions_visitor.sql
-37_index_idx_sessions_user.sql
-38_index_idx_sessions_ip.sql
-39_index_idx_visitors_last_seen.sql
-40_index_idx_visitors_user.sql
-41_index_idx_visitors_ip.sql
-42_index_idx_archives_platform.sql
-43_index_idx_archives_status.sql
-44_index_idx_notifications_platform.sql
-
-45_seed_schema.sql
-46_seed_service.sql
-
-47_verify_tables.sql
-48_verify_event_columns.sql
-49_verify_platform_columns.sql
-50_verify_visitor_columns.sql
-51_verify_session_columns.sql
-52_verify_archive_columns.sql
-53_verify_notification_columns.sql
-54_verify_schema_meta.sql
-55_verify_counts.sql
-```
-
-The first seven files are destructive. They are for a clean rebuild and will remove old v8 data.
-
----
-
-# 17. No Cron architecture
-
-Collection is request-driven.
-
-There is no requirement for:
-
-```text
-Cron Trigger
-Scheduled Trigger
-background polling loop
-GitHub Actions collector
-```
-
-A normal `POST /v1/events` request performs the collection immediately.
-
-The GitHub archive and Telegram path are downstream of the already-stored event.
-
----
-
-# 18. Telegram bot
-
-Telegram is optional.
-
-The Worker supports:
+Then:
 
 ```text
 /telegram/setup
 /telegram/test
-/telegram/webhook
-```
-
-The bot is designed to notify the administrator about new visitors/events according to:
-
-```text
-TELEGRAM_NOTIFY_MODE
-```
-
-Available modes:
-
-```text
-off
-event
-session
-visitor
-```
-
-Default:
-
-```text
-visitor
-```
-
-This intentionally avoids sending a Telegram message for every heartbeat/scroll event.
-
-### Telegram commands
-
-```text
-/start
-/help
-/status
-/health
-/platforms
-/platform <platform-id>
-/stats <platform-id>
-/recent <platform-id>
-/docs
-/id
-/about
-```
-
-### Webhook setup
-
-After all Telegram secrets are configured and the Worker is deployed:
-
-```http
-GET /telegram/setup
 ```
 
 with:
@@ -1031,684 +2082,73 @@ with:
 X-Admin-Key: YOUR_ADMIN_KEY
 ```
 
-The Worker calls Telegram's `setWebhook` API and points the bot to:
+---
+
+# 38. Operational Recommendations
+
+For small and moderate event volume:
 
 ```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/telegram/webhook
+D1 + individual GitHub archive
 ```
 
-Telegram's official Bot API documentation:
+is straightforward and traceable.
 
-https://core.telegram.org/bots/api
+For high event volume, consider:
+
+```text
+rate limiting
+platform API keys
+batch archiving
+sampling
+retention policies
+separate private admin API
+queueing/buffering
+```
+
+The current repository intentionally stays request-driven and does not require Cron for basic ingestion.
 
 ---
 
-# 19. Dashboard
+# 39. Official References
 
-The dashboard is in `docs/` and can be published as GitHub Pages.
+Cloudflare Workers Builds:
 
-It keeps the existing dark/glass/neon visual style and adds v9 reliability behavior:
+https://developers.cloudflare.com/workers/ci-cd/builds/
 
-- dynamic platform discovery;
-- date range controls;
-- platform search;
-- traffic timeline;
-- platform mix;
-- country distribution;
-- browser distribution;
-- operating-system distribution;
-- raw IP ranking;
-- recent event table;
-- event inspector;
-- full JSON inspector;
-- Worker/D1/GitHub/Telegram health cards;
-- automatic refresh;
-- request timeout;
-- last-known-good data retention after refresh failure;
-- graceful partial API failure.
+Cloudflare GitHub integration:
 
-The dashboard only contains public configuration values.
+https://developers.cloudflare.com/workers/ci-cd/builds/git-integration/github-integration/
 
-Do NOT put:
+Build watch paths:
 
-```text
-GITHUB_TOKEN
-ADMIN_KEY
-TELEGRAM_BOT_TOKEN
-TELEGRAM_WEBHOOK_SECRET
-```
+https://developers.cloudflare.com/workers/ci-cd/builds/build-watch-paths/
 
-inside `docs/config.js`.
+Build configuration:
 
----
+https://developers.cloudflare.com/workers/ci-cd/builds/configuration/
 
-# 20. Browser SDK
+Wrangler configuration:
 
-Use:
+https://developers.cloudflare.com/workers/wrangler/configuration/
 
-```html
-<script src="https://mehrdadmb2.github.io/github-page-insights/analytics.js"></script>
-```
+D1 Wrangler commands:
 
-or copy `docs/analytics.js` to another project.
+https://developers.cloudflare.com/d1/wrangler-commands/
 
-The SDK automatically collects:
+D1 getting started:
 
-```text
-pageview
-heartbeat
-scroll
-click
-outbound_click
-visibility
-pageleave
-connection changes
-```
+https://developers.cloudflare.com/d1/get-started/
 
-It creates/reuses:
-
-```text
-visitorId
-sessionId
-```
-
-and sends:
-
-```text
-platformId
-platformName
-platformType
-environment
-appVersion
-platformIp
-source
-SDK name/version
-event ID
-timestamp
-identity
-page
-screen
-viewport
-connection
-engagement
-custom data
-metadata
-```
-
-It also keeps a small browser-side retry queue for temporary connectivity failures.
-
----
-
-# 21. Adding another platform
-
-No Worker code change is required.
-
-Example A:
-
-```json
-{
-  "platformId": "imdb-showcase",
-  "platformName": "IMDb Showcase",
-  "platformType": "github-pages"
-}
-```
-
-Example B:
-
-```json
-{
-  "platformId": "crm-api",
-  "platformName": "CRM API",
-  "platformType": "api",
-  "eventType": "invoice_opened",
-  "data": {
-    "invoiceId": "INV-1001"
-  }
-}
-```
-
-Example C:
-
-```json
-{
-  "platformId": "telegram-bot",
-  "platformName": "My Telegram Bot",
-  "platformType": "telegram",
-  "eventType": "command",
-  "data": {
-    "command": "/start",
-    "chatType": "private"
-  }
-}
-```
-
-Each platform gets its own GitHub namespace automatically:
-
-```text
-data/platforms/imdb-showcase/
-data/platforms/crm-api/
-data/platforms/telegram-bot/
-```
-
----
-
-# 22. Platform API keys
-
-Optional platform authentication is built in.
-
-Keep:
-
-```text
-REQUIRE_PLATFORM_KEY=false
-```
-
-for the initial installation.
-
-When a platform is ready for authentication:
-
-1. create a platform key;
-2. call the admin endpoint;
-3. store only the SHA-256 hash in D1;
-4. enable `REQUIRE_PLATFORM_KEY=true`;
-5. send the platform key using `X-Platform-Key` or `X-API-Key`.
-
-Never put a platform key into public documentation when the client is a browser application.
-
----
-
-# 23. Reliability behavior
-
-## D1 failure
-
-The Worker returns:
-
-```text
-D1_STORE_FAILED
-```
-
-and the event is not reported as stored.
-
-## Aggregate failure
-
-The v9 design stores the event before aggregate maintenance.
-
-If aggregate maintenance fails:
-
-```text
-D1 event = stored
-D1 aggregates = degraded
-```
-
-The response exposes the aggregate error instead of pretending the full pipeline was healthy.
-
-## GitHub archive failure
-
-The D1 event stays intact.
-
-The archive status is recorded in:
-
-```text
-event_archives
-```
-
-and the administrator can retry with:
-
-```http
-POST /v1/admin/archive-retry/<eventId>
-```
-
-## Telegram failure
-
-Telemetry storage does not fail because Telegram failed.
-
-The notification status is recorded in:
-
-```text
-notification_log
-```
-
----
-
-# 24. Health endpoint
-
-Open:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/v1/health
-```
-
-Full GitHub probe:
-
-```text
-https://github-page-insights-worker.game-developer-mb.workers.dev/v1/health?probe=github
-```
-
-The health response checks:
-
-```text
-Worker
-D1
-GitHub
-Telegram configuration
-Telemetry freshness
-schema completeness
-row counts
-latest event
-```
-
-Possible overall states:
-
-```text
-healthy
-degraded
-error
-```
-
----
-
-# 25. Verification after D1 setup
-
-The final verification queries are:
-
-```text
-47_verify_tables.sql
-48_verify_event_columns.sql
-49_verify_platform_columns.sql
-50_verify_visitor_columns.sql
-51_verify_session_columns.sql
-52_verify_archive_columns.sql
-53_verify_notification_columns.sql
-54_verify_schema_meta.sql
-55_verify_counts.sql
-```
-
-`48_verify_event_columns.sql` should show **96 event columns**.
-
-The required columns include:
-
-```text
-id
-received_at
-event_type
-platform_id
-platform_name
-platform_type
-platform_url
-platform_domain
-session_id
-visitor_id
-ip
-ip_hash
-platform_ip
-data_json
-metadata_json
-headers_json
-cf_json
-request_json
-payload_json
-raw_event_json
-```
-
----
-
-# 26. Test event
-
-A ready-made test payload is provided in:
-
-```text
-tests-SAMPLE-EVENT.json
-```
-
-Send it to:
-
-```text
-POST https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events
-```
-
-with:
-
-```http
-Content-Type: application/json
-```
-
-For the first test, use a platform ID such as:
-
-```text
-sample-web-app
-```
-
-After the request:
-
-1. check the Worker response;
-2. open D1 `events` and verify the row;
-3. open `platforms` and verify the platform;
-4. verify visitor/session rows;
-5. verify the GitHub archive file;
-6. open `/v1/platforms/sample-web-app?days=7`;
-7. open the dashboard and refresh.
-
----
-
-# 27. GUI-only deployment order
-
-This is the recommended order for this repository.
-
-```text
-PHASE A — GitHub
-    ↓
-Upload repository files
-    ↓
-PHASE B — D1
-    ↓
-Create / select github-page-insights
-    ↓
-Run console SQL 01 → 55 in order
-    ↓
-PHASE C — Worker
-    ↓
-Open github-page-insights-worker
-    ↓
-Attach D1 binding DB
-    ↓
-Add Variables
-    ↓
-Add Secrets
-    ↓
-Paste worker/index.js into Worker editor
-    ↓
-Deploy
-    ↓
-PHASE D — Worker verification
-    ↓
-/v1/health
-/v1/schema
-/v1/platforms
-    ↓
-PHASE E — Event test
-    ↓
-POST /v1/events
-    ↓
-Verify D1 + GitHub archive
-    ↓
-PHASE F — GitHub Pages
-    ↓
-Publish docs/
-    ↓
-Open dashboard
-    ↓
-PHASE G — Telegram
-    ↓
-Set Telegram secrets
-    ↓
-Deploy Worker again
-    ↓
-GET /telegram/setup with X-Admin-Key
-    ↓
-GET /telegram/test with X-Admin-Key
-    ↓
-Send /start to bot
-```
-
----
-
-# 28. Cloudflare dashboard troubleshooting
-
-## `D1_NOT_CONFIGURED`
-
-Check the binding:
-
-```text
-DB → github-page-insights
-```
-
-## `D1 schema is incomplete`
-
-Run:
-
-```text
-48_verify_event_columns.sql
-49_verify_platform_columns.sql
-50_verify_visitor_columns.sql
-51_verify_session_columns.sql
-52_verify_archive_columns.sql
-53_verify_notification_columns.sql
-```
-
-Then compare them with the v9 schema.
-
-## Event request returns `D1_STORE_FAILED`
-
-Check Worker logs and the `requestId`.
-
-The first thing to verify is that the deployed Worker code is v9 and D1 is v9.
-
-## Dashboard is empty
-
-Check:
-
-```text
-/v1/health
-/v1/platforms
-/v1/overview?days=7
-```
-
-Then send the sample event again.
-
-## GitHub archive returns 401/403
-
-Check:
-
-```text
-GITHUB_TOKEN
-GITHUB_OWNER
-GITHUB_REPO
-GITHUB_BRANCH
-```
-
-and make sure the GitHub fine-grained token can write repository contents.
-
-## GitHub archive returns 409
-
-This is treated as a retryable conflict. v9 retries and also checks whether the event file has already been created.
-
-## Telegram does not reply
-
-Check:
-
-```text
-TELEGRAM_BOT_TOKEN
-TELEGRAM_ADMIN_CHAT_ID
-TELEGRAM_WEBHOOK_SECRET
-TELEGRAM_ENABLED=true
-```
-
-Then run:
-
-```text
-/telegram/setup
-/telegram/test
-```
-
-with the admin key.
-
----
-
-# 29. D1 usage considerations
-
-Cloudflare currently enforces daily D1 row-read/write limits on Workers Free plans, so high-volume telemetry can consume the included allowance. Keep the dashboard refresh interval reasonable, avoid unnecessary broad queries, and use platform/date filters for large datasets.
-
-Reference:
-
-https://developers.cloudflare.com/d1/platform/changelog/
-
----
-
-# 30. Security checklist
-
-Before production:
-
-```text
-[ ] ADMIN_KEY is a long random secret
-[ ] GITHUB_TOKEN is a Worker Secret
-[ ] Telegram token is a Worker Secret
-[ ] Telegram webhook secret is a Worker Secret
-[ ] No secrets exist in docs/config.js
-[ ] No secrets exist in README examples
-[ ] REQUIRE_PLATFORM_KEY policy has been decided
-[ ] Raw IP access is restricted to appropriate administrators
-[ ] Retention/privacy policy has been reviewed
-[ ] GitHub archive repository visibility has been reviewed
-```
-
----
-
-# 31. File-by-file responsibilities
-
-## `worker/index.js`
-
-The production Cloudflare Worker.
-
-Responsibilities:
-
-```text
-routing
-validation
-normalization
-Cloudflare enrichment
-IP detection
-secret redaction
-D1 storage
-aggregate maintenance
-GitHub archive
-Telegram webhook
-Telegram notifications
-health diagnostics
-admin operations
-API contract
-```
-
-## `wrangler.jsonc`
-
-Infrastructure-as-code reference for the same Worker name, variables and D1 binding.
-
-The project does not require CLI usage for the deployment workflow documented here.
-
-## `docs/index.html`
-
-Dashboard markup.
-
-## `docs/style.css`
-
-The full visual layer: dark/light theme, glass panels, gradients, responsive layout, cards, tables, modals and animated background.
-
-## `docs/app.js`
-
-Dashboard logic with resilient API loading and last-good-data retention.
-
-## `docs/analytics.js`
-
-Browser SDK for automatic telemetry collection.
-
-## `docs/config.js`
-
-Public client configuration only.
-
-## `db/schema-v9.sql`
-
-Reference full schema.
-
-## `db/console/*.sql`
-
-One-statement GUI deployment path.
-
-## `docs/api-schema.json`
-
-Machine-readable API contract for AI tools and integrations.
-
----
-
-# 32. AI integration instructions
-
-An AI coding agent integrating another repository should follow this order:
-
-```text
-1. Identify a stable platformId.
-2. Identify the platform display name.
-3. Identify platform type.
-4. Set Worker URL.
-5. Send POST /v1/events.
-6. Prefer platform/session/visitor IDs when the source system provides them.
-7. Put application-specific data in data.
-8. Put integration metadata in metadata.
-9. Never copy GitHub or admin secrets into the target application.
-10. Use /v1/schema to inspect the public contract.
-11. Use /v1/platforms/<id> for analytics.
-12. Use GitHub archive folders for long-term event export.
-```
-
----
-
-# 33. Versioning
-
-The API namespace is:
-
-```text
-/v1/*
-```
-
-Breaking contract changes should create a new major namespace instead of silently changing the meaning of existing v1 fields.
-
-Worker internal version:
-
-```text
-9.0.0
-```
-
-Database schema version:
-
-```text
-9.0
-```
-
----
-
-# 34. Final installation rule
-
-Do not mix versions.
-
-A stable deployment means these layers are from the same release family:
-
-```text
-Worker v9
-D1 schema v9
-Dashboard v9
-Browser SDK v9
-API schema v9
-```
-
-If one layer remains on v8 while another is v9, unexpected fields, missing columns, or dashboard/API mismatches can appear.
-
----
-
-# 35. Official documentation references
-
-Cloudflare D1 limits:
-
-https://developers.cloudflare.com/d1/platform/limits/
-
-Cloudflare D1 Worker API:
-
-https://developers.cloudflare.com/d1/worker-api/
-
-Cloudflare Worker request metadata:
-
-https://developers.cloudflare.com/workers/runtime-apis/request/
-
-Cloudflare Worker Secrets:
+Cloudflare Worker secrets:
 
 https://developers.cloudflare.com/workers/configuration/secrets/
 
-GitHub repository contents API:
+GitHub Pages:
+
+https://docs.github.com/en/pages
+
+GitHub Contents API:
 
 https://docs.github.com/en/rest/repos/contents
 
@@ -1718,36 +2158,18 @@ https://core.telegram.org/bots/api
 
 ---
 
-## 36. Release validation
+# 40. License
 
-The final release was statically and runtime-smoke tested before packaging. See:
+MIT License.
+
+See:
 
 ```text
-VALIDATION-REPORT-FA.md
-tests/validate.mjs
+LICENSE
 ```
 
-The validation covers JavaScript syntax, D1 schema/Worker column alignment, all numbered D1 Console DDL/index statements (01-46), verification queries (47-55), the collect path, duplicate event handling, `/v1/schema`, `/v1/health`, malformed route encoding, GitHub archive success in a mock, and Telegram setup/test/webhook in a mock.
+---
 
-## License
+## Final principle
 
-MIT — see `LICENSE`.
-
-
-## Windows + Wrangler (recommended deployment path)
-
-Cloudflare infrastructure for this version is managed from Windows with Wrangler: D1 creation, remote SQL execution, secrets, bindings, and Worker deployment. Start with `SETUP-WRANGLER-WINDOWS-FA.md`.
-
-Quick path:
-
-```powershell
-npm install
-npx wrangler login --use-keyring
-npx wrangler d1 create github-page-insights --binding DB --update-config --use-remote
-npx wrangler d1 execute github-page-insights --remote --file=./db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql --yes
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler secret put ADMIN_KEY
-npx wrangler deploy
-```
-
-The `d1 create` command is only needed when the database does not already exist.
+**Send an event, identify it with `platformId`, keep the event ID stable for retries, let the Worker normalize/enrich/store/archive it, and let `/v1/schema` remain the source of truth for machines and AI.**

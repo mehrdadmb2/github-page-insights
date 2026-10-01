@@ -4,7 +4,6 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": true,
-
   "vars": {
     "GITHUB_OWNER": "mehrdadmb2",
     "GITHUB_REPO": "github-page-insights",
@@ -15,16 +14,14 @@
     "TELEGRAM_NOTIFY_MODE": "visitor",
     "DEBUG": "false"
   },
-
   "secrets": {
     "required": ["GITHUB_TOKEN", "ADMIN_KEY"]
   },
-
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "github-page-insights",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+      "database_id": "YOUR_D1_DATABASE_ID"
     }
   ]
 }

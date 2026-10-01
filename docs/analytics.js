@@ -1,4 +1,4 @@
-/* Universal Event Insights Browser SDK v9 */
+/* Universal Event Insights Browser SDK v10 */
 (function () {
   "use strict";
 
@@ -30,7 +30,7 @@
 
   if (!worker || !platformId) return;
 
-  const storageKey = `uei_v9_${platformId}`;
+  const storageKey = `uei_v10_${platformId}`;
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   const queueKey = `${storageKey}_queue`;
 
@@ -96,7 +96,7 @@
       platformIp,
       source: "browser",
       sdkName: "universal-event-insights-browser",
-      sdkVersion: "9.0.0",
+      sdkVersion: "10.2.0",
       eventType,
       eventId: crypto.randomUUID(),
       timestamp: new Date().toISOString(),

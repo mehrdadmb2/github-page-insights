@@ -1,389 +1,65 @@
-(function () {
+
+(function(){
   "use strict";
+  const C=window.PAGE_INSIGHTS_CONFIG||{};
+  const W=String(C.workerUrl||"").replace(/\/+$/,"");
+  const $=id=>document.getElementById(id);
+  const state={days:String(C.defaultRangeDays||7),platform:"*",overview:null,platformStats:null,platforms:[],events:[],loading:false,health:null,theme:localStorage.getItem("uei-theme")||"dark",clientKind:"browser",cache:{}};
+  const el={boot:$('boot'),live:$('livePill'),platform:$('platformSelect'),search:$('platformSearch'),lastSync:$('lastSync'),healthTitle:$('healthTitle'),overall:$('overallBadge'),healthMeta:$('healthMeta'),traffic:$('trafficSvg'),trafficInfo:$('trafficInfo'),platformBars:$('platformBars'),countries:$('countries'),clientRank:$('clientRank'),ips:$('ips'),eventsBody:$('eventsBody'),eventCount:$('eventCount'),topPages:$('topPages'),eventTypes:$('eventTypes'),sources:$('sources'),statuses:$('statuses'),drawer:$('eventDrawer'),backdrop:$('drawerBackdrop'),drawerTitle:$('drawerTitle'),drawerBody:$('drawerBody'),admin:$('adminDialog'),adminInput:$('adminKeyInput'),adminResult:$('adminResult')};
+  const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num=v=>new Intl.NumberFormat().format(Number(v)||0);
+  const safeNum=v=>Number.isFinite(Number(v))?Number(v):0;
+  const dur=ms=>{const s=Math.max(0,Math.round(safeNum(ms)/1000));if(s<60)return `${s}s`;const m=Math.floor(s/60);if(m<60)return `${m}m ${s%60}s`;return `${Math.floor(m/60)}h ${m%60}m`};
+  const date=v=>{try{const d=new Date(v);return Number.isNaN(d.getTime())?'—':d.toLocaleString(undefined,{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}catch{return '—'}};
+  const relative=v=>{try{const d=new Date(v).getTime();if(!Number.isFinite(d))return '—';const s=Math.max(0,Math.floor((Date.now()-d)/1000));if(s<60)return `${s}s ago`;if(s<3600)return `${Math.floor(s/60)}m ago`;if(s<86400)return `${Math.floor(s/3600)}h ago`;return `${Math.floor(s/86400)}d ago`}catch{return '—'}};
+  function toast(m,error=false){const n=document.createElement('div');n.className=`toast${error?' error':''}`;n.textContent=m;$('toasts').appendChild(n);setTimeout(()=>n.remove(),4200)}
+  function setLive(status,label){el.live.classList.remove('ok','error');if(status==='ok')el.live.classList.add('ok');if(status==='error')el.live.classList.add('error');el.live.querySelector('span').textContent=label}
+  async function api(path,opts={}){if(!W)throw Error('Worker URL تنظیم نشده است');const controller=new AbortController();const t=setTimeout(()=>controller.abort(),Number(C.requestTimeoutMs||12000));try{const r=await fetch(`${W}${path}`,{cache:'no-store',signal:controller.signal,...opts});let b=null;try{b=await r.json()}catch{}if(!r.ok)throw Error(`HTTP ${r.status}${b?.error?` — ${b.error}`:''}`);return b}finally{clearTimeout(t)}}
+  function getRangePath(base,days){return `${base}${base.includes('?')?'&':'?'}days=${encodeURIComponent(days)}`}
+  function cacheKey(){return `${state.platform}|${state.days}`}
+  function applyTheme(){document.documentElement.classList.toggle('light',state.theme==='light');localStorage.setItem('uei-theme',state.theme)}
+  function setStat(id,value,sub){$(id).textContent=value;if(sub!==undefined){const s=$(id+'-sub');if(s)s.textContent=sub}}
+  function setHealthCard(id,status,title,sub){const n=$(id);n.className=`health-card ${status||''}`;n.innerHTML=`<b>${esc(title)}</b><strong>${esc((status||'unknown').toUpperCase())}</strong><small>${esc(sub||'')}</small>`}
+  function populatePlatforms(filter=''){const q=filter.trim().toLowerCase();el.platform.innerHTML='<option value="*">همه پلتفرم‌ها</option>';state.platforms.filter(p=>!q||String(p.platformName||'').toLowerCase().includes(q)||String(p.platformId||'').toLowerCase().includes(q)).forEach(p=>{const o=document.createElement('option');o.value=p.platformId;o.textContent=`${p.platformName||p.platformId} · ${p.platformId}`;el.platform.appendChild(o)});el.platform.value=state.platforms.some(p=>p.platformId===state.platform)?state.platform:'*'}
+  function currentData(){return state.platform==='*'?state.overview:state.platformStats||state.overview}
+  async function refresh({silent=false}={}){if(state.loading)return;state.loading=true;if(!silent)setLive('ok','در حال همگام‌سازی');try{const [health,overview,platforms]=await Promise.allSettled([api('/v1/health'),api(getRangePath('/v1/overview',state.days)),api('/v1/platforms')]);if(health.status==='fulfilled'){state.health=health.value;renderHealth()}else{renderHealthError(health.reason)}if(overview.status==='fulfilled'){state.overview=overview.value;state.cache[cacheKey()]=overview.value}else if(state.cache[cacheKey()]){state.overview=state.cache[cacheKey()];toast('اتصال موقت بود؛ آخرین داده سالم نمایش داده شد.',true)}else{throw overview.reason}if(platforms.status==='fulfilled')state.platforms=platforms.value.platforms||[];renderAll();setLive('ok','Live');el.lastSync.textContent=`آخرین همگام‌سازی: ${new Date().toLocaleTimeString()}`}catch(e){setLive('error','Offline');toast(`به‌روزرسانی ناموفق: ${e.message}`,true)}finally{state.loading=false;setTimeout(()=>el.live.classList.remove('ok','error'),2500)}}
+  async function loadPlatform(){if(state.platform==='*'){state.platformStats=null;renderAll();return}state.loading=true;setLive('ok','در حال دریافت پلتفرم');try{state.platformStats=await api(getRangePath(`/v1/platforms/${encodeURIComponent(state.platform)}`,state.days));state.events=state.platformStats.recentEvents||[];renderAll();setLive('ok','Live')}catch(e){toast(`بارگذاری پلتفرم ناموفق: ${e.message}`,true)}finally{state.loading=false}}
+  function renderAll(){const d=currentData();if(!d)return;const t=d.totals||{};setStat('k-platforms',state.platform==='*'?num((state.platforms||[]).length):'1',state.platform==='*'?'پلتفرم‌های کشف‌شده':state.platform);setStat('k-events',num(t.events||0));setStat('k-pageviews',num(t.pageviews||t.views||0));setStat('k-visitors',num(t.uniqueVisitors||0));setStat('k-sessions',num(t.sessions||0));setStat('k-duration',dur(t.avgDurationMs||0));setStat('k-scroll',`${Math.round(safeNum(t.avgScroll))}%`);const ev=d.recentEvents||[];state.events=ev;if(ev[0]){setStat('k-last',relative(ev[0].receivedAt));el.lastSync.title=date(ev[0].receivedAt);$('k-last-sub').textContent=`${ev[0].platformName||ev[0].platformId||''} · ${ev[0].eventType||''}`}else{setStat('k-last','—');$('k-last-sub').textContent='هنوز eventی ثبت نشده'}renderTraffic(d.daily||[]);renderPlatformBars(d.platforms||state.platforms||[]);renderRanks('countries',d.countries||[],'label','count');renderClient();renderIps(d.ips||[]);renderEvents(ev);renderTopPages(d.topPages||deriveTopPages(ev));renderEventTypes(ev);renderSources(ev);renderStatuses(ev);renderApiExamples()}
+  function renderTraffic(rows){const s=el.traffic;const w=1000,h=300,pad={l:45,r:20,t:18,b:34};s.innerHTML='';const max=Math.max(1,...rows.map(r=>safeNum(r.events)));const xs=i=>pad.l+(rows.length<=1?(w-pad.l-pad.r)/2:i*(w-pad.l-pad.r)/(rows.length-1));const ys=v=>h-pad.b-(v/max)*(h-pad.t-pad.b);const ns=(tag,attrs)=>{const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))n.setAttribute(k,v);s.appendChild(n);return n};const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');const grad=document.createElementNS('http://www.w3.org/2000/svg','linearGradient');grad.id='areaGradient';grad.setAttribute('x1','0');grad.setAttribute('x2','0');grad.setAttribute('y1','0');grad.setAttribute('y2','1');const st1=document.createElementNS('http://www.w3.org/2000/svg','stop');st1.setAttribute('offset','0%');st1.setAttribute('stop-color','rgba(82,231,255,.24)');const st2=document.createElementNS('http://www.w3.org/2000/svg','stop');st2.setAttribute('offset','100%');st2.setAttribute('stop-color','rgba(82,231,255,0)');grad.append(st1,st2);defs.appendChild(grad);s.appendChild(defs);for(let i=0;i<4;i++){const y=pad.t+i*(h-pad.t-pad.b)/3;ns('line',{x1:pad.l,y1:y,x2:w-pad.r,y2:y,class:'chart-grid'});ns('text',{x:pad.l-8,y:y+4,'text-anchor':'end',class:'chart-label'}).textContent=num(Math.round(max*(1-i/3)))}if(!rows.length){ns('text',{x:w/2,y:h/2,'text-anchor':'middle',class:'chart-label'}).textContent='داده‌ای برای نمودار وجود ندارد';return}let path='';rows.forEach((r,i)=>{path+=`${i?'L':'M'} ${xs(i)} ${ys(safeNum(r.events))} `});const area=`${path} L ${xs(rows.length-1)} ${h-pad.b} L ${xs(0)} ${h-pad.b} Z`;ns('path',{d:area,class:'chart-area'});ns('path',{d:path,class:'chart-line'});rows.forEach((r,i)=>{if(i%Math.max(1,Math.ceil(rows.length/7))===0||i===rows.length-1){ns('circle',{cx:xs(i),cy:ys(safeNum(r.events)),r:5,class:'chart-dot'});ns('text',{x:xs(i),y:h-10,'text-anchor':'middle',class:'chart-label'}).textContent=String(r.day||'').slice(5)}});el.trafficInfo.textContent=`${num(rows.reduce((a,r)=>a+safeNum(r.events),0))} events`}
+  function renderPlatformBars(rows){const list=(rows||[]).slice().sort((a,b)=>safeNum(b.totalEvents)-safeNum(a.totalEvents)).slice(0,10);const max=Math.max(1,...list.map(r=>safeNum(r.totalEvents)));el.platformBars.innerHTML=list.length?list.map((r,i)=>`<div class="bar-row"><div class="bar-label" title="${esc(r.platformId)}">${esc(r.platformName||r.platformId)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(3,Math.round(safeNum(r.totalEvents)/max*100))}%"></div></div><div class="bar-value">${num(r.totalEvents)}</div></div>`).join(''):`<div class="muted">پلتفرمی وجود ندارد.</div>`}
+  function renderRanks(id,rows,labelKey,countKey){const list=(rows||[]).filter(r=>r[labelKey]||r.label).slice(0,10);$(id).innerHTML=list.length?list.map((r,i)=>{const label=r[labelKey]??r.label??'Unknown';return `<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(label||'Unknown')}</strong><small>${countKey==='count'?'رویداد':''}</small></div><div class="rank-value">${num(r[countKey]||0)}</div></div>`}).join(''):`<div class="muted">داده‌ای وجود ندارد.</div>`}
+  function renderClient(){const d=currentData()||{};const map={browser:d.browsers||[],os:d.operatingSystems||[],device:d.devices||[]};const rows=(map[state.clientKind]||[]).slice(0,10);$(el.clientRank).innerHTML=rows.length?rows.map((r,i)=>{const label=r.browser||r.os||r.device||'Unknown';return `<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(label)}</strong></div><div class="rank-value">${num(r.count||0)}</div></div>`}).join(''):`<div class="muted">داده‌ای وجود ندارد.</div>`}
+  function renderIps(rows){el.ips.innerHTML=(rows||[]).slice(0,10).map((r,i)=>`<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(r.ip||'—')}</strong><small>${esc([r.city,r.country].filter(Boolean).join(' · ')||'موقعیت نامشخص')}</small></div><div class="rank-value">${num(r.count||0)}</div></div>`).join('')||'<div class="muted">IP ثبت نشده است.</div>'}
+  function renderEvents(rows){const data=(rows||[]).slice(0,Number(C.recentLimit||60));el.eventCount.textContent=num(data.length);el.eventsBody.innerHTML=data.length?data.map((r,i)=>`<tr data-index="${i}"><td title="${esc(date(r.receivedAt))}">${esc(relative(r.receivedAt))}</td><td><strong>${esc(r.platformName||r.platformId||'—')}</strong></td><td><span class="pill-type">${esc(r.eventType||'custom')}</span></td><td class="ip-text">${C.showRawIp?esc(r.ip||'—'):'hidden'}</td><td class="location">${esc([r.city,r.region,r.country].filter(Boolean).join(' · ')||'—')}</td><td>${esc(r.device||'—')}</td><td class="page-text" title="${esc(r.path||r.pageUrl||'')}">${esc(r.path||r.title||r.pageUrl||'—')}</td></tr>`).join(''):`<tr><td colspan="7" class="muted">هنوز eventی ثبت نشده است.</td></tr>`;el.eventsBody.querySelectorAll('tr[data-index]').forEach(tr=>tr.addEventListener('click',()=>openEvent(data[Number(tr.dataset.index)])))}
+  function deriveTopPages(events){const m=new Map();for(const e of events){if(e.eventType!=='pageview')continue;const k=e.path||'/';m.set(k,(m.get(k)||0)+1)}return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10).map(([path,views])=>({path,views,title:path}))}
+  function renderTopPages(rows){el.topPages.innerHTML=(rows||[]).slice(0,10).map((r,i)=>`<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(r.title||r.path||'—')}</strong><small>${esc(r.path||'')}</small></div><div class="rank-value">${num(r.views||0)}</div></div>`).join('')||'<div class="muted">صفحه‌ای وجود ندارد.</div>'}
+  function renderEventTypes(events){const m=new Map();for(const e of events||[])m.set(e.eventType||'custom',(m.get(e.eventType||'custom')||0)+1);const a=[...m.entries()].sort((x,y)=>y[1]-x[1]).slice(0,8);el.eventTypes.innerHTML=a.length?a.map(([k,v])=>`<div class="event-type-card"><b>${esc(k)}</b><span>${num(v)}</span></div>`).join(''):'<div class="muted">—</div>'}
+  function renderSources(events){const m=new Map();for(const e of events||[]){const k=e.referrerHost||e.utmSource||'direct';m.set(k,(m.get(k)||0)+1)}const a=[...m.entries()].sort((x,y)=>y[1]-x[1]).slice(0,10).map(([label,count])=>({label,count}));el.sources.innerHTML=a.length?a.map((r,i)=>`<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(r.label)}</strong></div><div class="rank-value">${num(r.count)}</div></div>`).join(''):'<div class="muted">—</div>'}
+  function renderStatuses(events){const m=new Map();for(const e of events||[]){const s=e.responseStatus||200;m.set(String(s),(m.get(String(s))||0)+1)}const a=[...m.entries()].sort((x,y)=>y[1]-x[1]).slice(0,8);el.statuses.innerHTML=a.length?a.map(([k,v])=>`<div class="event-type-card"><b>HTTP ${esc(k)}</b><span>${num(v)}</span></div>`).join(''):'<div class="muted">—</div>'}
+  function renderHealth(){const h=state.health||{};el.overall.textContent=String(h.overall||'unknown').toUpperCase();el.overall.className=`status-badge ${h.overall||''}`;el.healthTitle.textContent=h.overall==='healthy'?'تمام سرویس‌ها عملیاتی هستند':h.overall==='degraded'?'سرویس فعال است ولی بخشی نیاز به بررسی دارد':h.overall==='error'?'یک یا چند dependency خطا دارد':'Health نامشخص';const c=h.checks||{};setHealthCard('h-worker',c.worker?.status||'unknown','Worker',c.worker?.version||'runtime');setHealthCard('h-d1',c.database?.status||'unknown','D1',c.database?.eventColumnCount?`${c.database.eventColumnCount} event columns`:'schema');setHealthCard('h-gh',c.github?.status||'unknown','GitHub',c.github?.message||'archive');setHealthCard('h-tg',c.configuration?.telegramConfigured?'ok':'degraded','Telegram',c.configuration?.telegramConfigured?'configured':'not configured');el.healthMeta.textContent=`${h.generatedAt?date(h.generatedAt):'—'} · ${c.database?.counts?.events??0} events · ${c.database?.counts?.platforms??0} platforms`}
+  function renderHealthError(e){setLive('error','Health Error');el.overall.textContent='ERROR';el.overall.className='status-badge error';el.healthTitle.textContent='Health قابل دسترسی نیست';el.healthMeta.textContent=e?.message||String(e);setHealthCard('h-worker','error','Worker','unreachable');setHealthCard('h-d1','unknown','D1','not checked');setHealthCard('h-gh','unknown','GitHub','not checked');setHealthCard('h-tg','unknown','Telegram','not checked')}
+  function pretty(obj){try{return JSON.stringify(obj,null,2)}catch{return String(obj)}}
+  function openEvent(e){if(!e)return;el.drawerTitle.textContent=e.eventId||'Event';const items=[['eventId',e.eventId],['eventType',e.eventType],['platform',e.platformName||e.platformId],['receivedAt',date(e.receivedAt)],['occurredAt',date(e.occurredAt)],['IP',C.showRawIp?e.ip:'hidden'],['IP Hash',e.ipHash],['Platform IP',C.showPlatformIp?e.platformIp:'hidden'],['Country',e.country],['Region',e.region],['City',e.city],['ASN',e.asn],['Browser',`${e.browser||'—'} ${e.browserVersion||''}`],['OS',`${e.os||'—'} ${e.osVersion||''}`],['Device',`${e.device||'—'} ${e.deviceModel||''}`],['Page',e.pageUrl||e.path],['Referrer',e.referrer],['Duration',dur(e.durationMs)],['Scroll',`${safeNum(e.maxScroll)}%`],['Clicks',e.clicks],['Outbound',e.outboundClicks],['Request ID',e.requestId],['CF-Ray',e.cfRay]];el.drawerBody.innerHTML=`<div class="detail-grid">${items.map(([k,v])=>`<div class="detail-item"><span>${esc(k)}</span><b>${esc(v??'—')}</b></div>`).join('')}</div><div class="json-box"><header>data_json</header><pre>${esc(pretty(parseJson(e.dataJson)))}</pre></div><div class="json-box"><header>metadata_json</header><pre>${esc(pretty(parseJson(e.metadataJson)))}</pre></div><div class="json-box"><header>cf_json</header><pre>${esc(pretty(parseJson(e.cfJson)))}</pre></div><div class="json-box"><header>request_json</header><pre>${esc(pretty(parseJson(e.requestJson)))}</pre></div><div class="json-box"><header>raw_event_json</header><pre>${esc(pretty(parseJson(e.rawEventJson)))}</pre></div><div class="admin-actions"><button class="ghost" id="adminLoadFromDrawer">باز کردن Admin Detail</button></div>`;$('adminLoadFromDrawer').addEventListener('click',()=>openAdmin(e.eventId));el.drawer.classList.add('open');el.backdrop.classList.add('open');el.drawer.setAttribute('aria-hidden','false')}
+  function parseJson(v){if(!v)return{};try{return typeof v==='string'?JSON.parse(v):v}catch{return v}}
+  function closeDrawer(){el.drawer.classList.remove('open');el.backdrop.classList.remove('open');el.drawer.setAttribute('aria-hidden','true')}
+  function openAdmin(eventId){closeDrawer();el.admin.dataset.eventId=eventId;el.adminResult.innerHTML='';el.admin.classList.add('open');el.admin.setAttribute('aria-hidden','false');el.adminInput.focus()}
+  function closeAdmin(){el.admin.classList.remove('open');el.admin.setAttribute('aria-hidden','true')}
+  async function loadAdmin(){const key=el.adminInput.value.trim();const eventId=el.admin.dataset.eventId;if(!key||!eventId)return toast('Admin Key و Event ID لازم است.',true);el.adminResult.textContent='در حال دریافت…';try{const b=await api(`/v1/admin/event?id=${encodeURIComponent(eventId)}`,{headers:{'X-Admin-Key':key}});el.adminResult.innerHTML=`<pre>${esc(pretty(b))}</pre>`}catch(e){el.adminResult.innerHTML=`<div class="toast error">${esc(e.message)}</div>`}}
+  function renderApiExamples(){const payload={platformId:'my-platform',platformName:'My Platform',platformType:'web',eventType:'pageview',sessionId:'session-123',visitorId:'visitor-123',page:{url:'https://example.com/dashboard',path:'/dashboard',title:'Dashboard'},data:{source:'demo'}};$('curlCode').textContent=`curl -X POST "${W}/v1/events" \
+  -H "Content-Type: application/json" \
+  -d '${JSON.stringify(payload)}'`;$('jsCode').textContent=`await fetch("${W}/v1/events", {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify(${JSON.stringify(payload,null,2)})
+});`;$('pyCode').textContent=`import requests
 
-  const C = window.PAGE_INSIGHTS_CONFIG || {};
-  const W = String(C.workerUrl || "").replace(/\/+$/, "");
-  const REQUEST_TIMEOUT = Number(C.requestTimeoutMs || 12000);
-  const $ = id => document.getElementById(id);
-  const el = {
-    boot: $("boot"), overall: $("overallBadge"),
-    hWorker: $("h-worker"), hD1: $("h-d1"), hGh: $("h-gh"), hTg: $("h-tg"),
-    healthMeta: $("healthMeta"), platform: $("platformSelect"), search: $("platformSearch"),
-    events: $("eventsBody"), count: $("eventCount"), traffic: $("trafficChart"),
-    platformBars: $("platformBars"), countries: $("countries"), browsers: $("browsers"),
-    oses: $("oses"), ips: $("ips"), last: $("s-last"), lastSub: $("s-last-sub"),
-    trafficInfo: $("trafficInfo"), toast: $("toasts"), modal: $("eventModal"),
-    modalTitle: $("eventModalTitle"), modalBody: $("eventModalBody")
-  };
-
-  const state = {
-    days: String(C.defaultRangeDays || 7),
-    platform: "*",
-    platforms: [],
-    data: null,
-    health: null,
-    events: new Map(),
-    loading: false,
-    lastGoodData: null
-  };
-
-  const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  })[char]);
-  const fmt = value => new Intl.NumberFormat().format(Number(value) || 0);
-  const dur = ms => {
-    let seconds = Math.max(0, Math.round((Number(ms) || 0) / 1000));
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-  };
-  const dt = value => {
-    try {
-      if (!value) return "—";
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return "—";
-      return date.toLocaleString(undefined, {
-        year: "numeric", month: "short", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit"
-      });
-    } catch {
-      return "—";
-    }
-  };
-
-  async function api(path) {
-    if (!W) throw Error("workerUrl is not configured");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-    try {
-      const response = await fetch(`${W}${path}`, { cache: "no-store", signal: controller.signal });
-      let body = null;
-      try { body = await response.json(); } catch { /* non-json failure */ }
-      if (!response.ok) {
-        throw Error(`HTTP ${response.status}${body?.error ? ` — ${body.error}` : ""}`);
-      }
-      return body;
-    } catch (error) {
-      if (error?.name === "AbortError") throw Error("Request timed out");
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  function toast(message, error = false) {
-    if (!el.toast) return;
-    const node = document.createElement("div");
-    node.className = `toast${error ? " error" : ""}`;
-    node.textContent = message;
-    el.toast.appendChild(node);
-    setTimeout(() => node.remove(), 4500);
-  }
-
-  function setHealthCard(node, status, title, sub) {
-    if (!node) return;
-    node.innerHTML = `<b>${esc(title)}</b><strong>${esc(status)}</strong><small>${esc(sub)}</small>`;
-  }
-
-  async function loadHealth(showError = false, probeGithub = false) {
-    try {
-      const health = await api(probeGithub ? "/v1/health?probe=github" : "/v1/health");
-      state.health = health;
-      if (el.overall) el.overall.textContent = String(health.overall || "unknown").toUpperCase();
-      setHealthCard(el.hWorker, health.checks?.worker?.status || "unknown", "Worker", "Reachability");
-      setHealthCard(el.hD1, health.checks?.database?.status || "unknown", "D1", "Schema & counts");
-      setHealthCard(el.hGh, health.checks?.github?.status || "unknown", "GitHub", "Archive/API");
-      setHealthCard(
-        el.hTg,
-        health.checks?.configuration?.telegramConfigured ? "configured" : "not configured",
-        "Telegram",
-        health.checks?.configuration?.telegramConfigured ? "Notification path" : "Configuration"
-      );
-      const db = health.checks?.database || {};
-      if (el.healthMeta) {
-        el.healthMeta.textContent = `${fmt(db.counts?.platforms)} platforms · ${fmt(db.counts?.events)} events · ${fmt(db.counts?.visitors)} visitors · ${fmt(db.counts?.sessions)} sessions · ${fmt(db.counts?.archives)} archives · last telemetry ${db.latestEvent?.receivedAt ? dt(db.latestEvent.receivedAt) : "never"}`;
-      }
-      return health;
-    } catch (error) {
-      setHealthCard(el.hWorker, "error", "Worker", "unreachable");
-      setHealthCard(el.hD1, "unknown", "D1", "not checked");
-      setHealthCard(el.hGh, "unknown", "GitHub", "not checked");
-      setHealthCard(el.hTg, "unknown", "Telegram", "not checked");
-      if (el.overall) el.overall.textContent = "ERROR";
-      if (el.healthMeta) el.healthMeta.textContent = error.message;
-      if (showError) toast(`Health check failed: ${error.message}`, true);
-      return null;
-    }
-  }
-
-  function renderPlatformSelect() {
-    if (!el.platform) return;
-    el.platform.innerHTML = `<option value="*">All platforms</option>` + state.platforms.map(platform =>
-      `<option value="${esc(platform.platformId)}">${esc(platform.platformName)} · ${esc(platform.platformType)}${platform.environment ? ` · ${esc(platform.environment)}` : ""}</option>`
-    ).join("");
-    el.platform.value = state.platform;
-    filterPlatforms();
-  }
-
-  async function loadPlatforms() {
-    const result = await api("/v1/platforms");
-    state.platforms = Array.isArray(result?.platforms) ? result.platforms : [];
-    renderPlatformSelect();
-    return result;
-  }
-
-  async function loadData() {
-    const overviewPath = state.platform === "*"
-      ? `/v1/overview?days=${encodeURIComponent(state.days)}`
-      : `/v1/platforms/${encodeURIComponent(state.platform)}?days=${encodeURIComponent(state.days)}`;
-    const primary = await api(overviewPath);
-
-    let recent = primary.recentEvents || [];
-    try {
-      const suffix = state.platform === "*" ? "" : `&platform=${encodeURIComponent(state.platform)}`;
-      const response = await api(`/v1/events?days=${encodeURIComponent(state.days)}&limit=${Number(C.recentLimit || 50)}${suffix}`);
-      recent = response?.events || recent;
-    } catch {
-      // Keep recent events from the primary response instead of failing the whole dashboard.
-    }
-
-    primary.recentEvents = recent;
-    primary.eventCount = recent.length;
-    state.data = primary;
-    state.lastGoodData = primary;
-    state.events.clear();
-    for (const event of recent) {
-      const id = event?.id || event?.eventId;
-      if (id) state.events.set(id, event);
-    }
-    render(primary);
-    return primary;
-  }
-
-  async function refresh(showToast = true) {
-    if (state.loading) return;
-    state.loading = true;
-    try {
-      await Promise.all([loadPlatforms(), loadHealth(false)]);
-      await loadData();
-      if (showToast) toast("Data refreshed");
-    } catch (error) {
-      if (state.lastGoodData) {
-        render(state.lastGoodData);
-        toast(`Refresh failed; showing last good data: ${error.message}`, true);
-      } else {
-        toast(`Refresh failed: ${error.message}`, true);
-      }
-    } finally {
-      state.loading = false;
-    }
-  }
-
-  function render(data) {
-    const totals = data?.totals || {};
-    $("s-platforms").textContent = fmt(state.platform === "*" ? (data.platforms || state.platforms).length : 1);
-    $("s-platforms-sub").textContent = state.platform === "*" ? "discovered dynamically" : (data.platform?.platformName || state.platform);
-    $("s-events").textContent = fmt(totals.events ?? totals.totalEvents ?? 0);
-    $("s-visitors").textContent = fmt(totals.uniqueVisitors ?? 0);
-    $("s-sessions").textContent = fmt(totals.sessions ?? 0);
-    $("s-duration").textContent = dur(totals.avgDurationMs || 0);
-
-    const last = (data.recentEvents || [])[0];
-    if (el.last) el.last.textContent = last ? dt(last.receivedAt || last.occurredAt) : "—";
-    if (el.lastSub) el.lastSub.textContent = last ? (last.platformName || last.platformId || "") : "no telemetry";
-    if (el.trafficInfo) el.trafficInfo.textContent = `${(data.daily || []).length} buckets`;
-
-    renderTraffic(data.daily || []);
-    renderPlatforms(data.platforms || state.platforms || []);
-    renderList(el.countries, data.countries || [], "label");
-    renderList(el.browsers, data.browsers || [], "browser");
-    renderList(el.oses, data.operatingSystems || [], "os");
-    renderList(el.ips, data.ips || [], "ip");
-    renderEvents((data.recentEvents || []).slice(0, Number(C.recentLimit || 50)));
-  }
-
-  function renderTraffic(rows) {
-    if (!el.traffic) return;
-    el.traffic.innerHTML = "";
-    const values = rows.map(row => Number(row.views ?? row.pageviews ?? row.events ?? 0));
-    const max = Math.max(1, ...values);
-    rows.forEach((row, index) => {
-      const column = document.createElement("div");
-      column.className = "barcol";
-      const bar = document.createElement("div");
-      bar.className = "bar";
-      bar.style.height = `${Math.max(3, (values[index] / max) * 100)}%`;
-      bar.title = `${row.day || ""}: ${fmt(values[index])}`;
-      column.appendChild(bar);
-      el.traffic.appendChild(column);
-    });
-    if (!rows.length) el.traffic.innerHTML = `<div class="muted">No traffic data yet.</div>`;
-  }
-
-  function renderPlatforms(rows) {
-    if (!el.platformBars) return;
-    const array = (rows || []).map(row => ({
-      name: row.platformName || row.platform_id || "Unknown",
-      count: Number(row.totalPageviews ?? row.views ?? row.count ?? 0)
-    })).sort((a, b) => b.count - a.count).slice(0, 8);
-    const max = Math.max(1, ...array.map(row => row.count));
-    el.platformBars.innerHTML = array.length
-      ? array.map(row => `<div class="bar-row"><div class="bar-row-head"><span>${esc(row.name)}</span><b>${fmt(row.count)}</b></div><div class="track"><div class="fill" style="width:${(row.count / max) * 100}%"></div></div></div>`).join("")
-      : `<div class="muted">No platforms yet.</div>`;
-  }
-
-  function renderList(node, rows, key) {
-    if (!node) return;
-    const array = (rows || []).map(row => ({
-      label: row.label ?? row[key] ?? row.ip ?? "Unknown",
-      count: Number(row.count ?? 0)
-    })).sort((a, b) => b.count - a.count).slice(0, 10);
-    node.innerHTML = array.length
-      ? array.map(row => `<div class="list-row"><span>${esc(row.label)}</span><b>${fmt(row.count)}</b></div>`).join("")
-      : `<div class="muted">No data.</div>`;
-  }
-
-  function renderEvents(rows) {
-    if (!el.events) return;
-    if (el.count) el.count.textContent = `${rows.length} events`;
-    el.events.innerHTML = rows.length ? rows.map(event => {
-      const id = event.id || event.eventId || "";
-      return `<tr class="event-row" data-event-id="${esc(id)}">
-        <td>${esc(dt(event.receivedAt || event.occurredAt))}</td>
-        <td>${esc(event.platformName || event.platformId || "—")}</td>
-        <td>${esc(event.eventType || event.type || "—")}</td>
-        <td><code>${esc(event.ip || "—")}</code></td>
-        <td>${esc([event.city, event.region, event.country].filter(Boolean).join(", ") || "—")}</td>
-        <td>${esc(event.device || "—")}</td>
-        <td>${esc(event.browser || "—")}</td>
-        <td title="${esc(event.pageUrl || "")}">${esc(event.path || "/")}</td>
-        <td>${esc(dur(event.durationMs || 0))}</td>
-      </tr>`;
-    }).join("") : `<tr><td colspan="9" class="muted">No events.</td></tr>`;
-
-    el.events.querySelectorAll(".event-row").forEach(row => {
-      row.addEventListener("click", () => showEvent(row.dataset.eventId));
-    });
-  }
-
-  function detailRow(label, value) {
-    return `<div class="detail-row"><span>${esc(label)}</span><b>${esc(value ?? "—")}</b></div>`;
-  }
-
-  function prettyJson(value) {
-    try {
-      return JSON.stringify(typeof value === "string" ? JSON.parse(value || "{}") : value || {}, null, 2);
-    } catch {
-      return String(value || "");
-    }
-  }
-
-  function showEvent(id) {
-    const event = state.events.get(id);
-    if (!event || !el.modal || !el.modalBody) return;
-    const field = (snake, camel) => event[snake] ?? event[camel];
-    el.modalTitle.textContent = `${field("event_type", "eventType") || "event"} · ${field("platform_name", "platformName") || field("platform_id", "platformId") || ""}`;
-    el.modalBody.innerHTML = `
-      <div class="detail-grid">
-        ${detailRow("Event ID", field("id", "eventId"))}
-        ${detailRow("Request ID", field("request_id", "requestId"))}
-        ${detailRow("Trace ID", field("trace_id", "traceId"))}
-        ${detailRow("Received", dt(field("received_at", "receivedAt")))}
-        ${detailRow("Occurred", dt(field("occurred_at", "occurredAt")))}
-        ${detailRow("Platform", field("platform_name", "platformName") || field("platform_id", "platformId"))}
-        ${detailRow("Platform type", field("platform_type", "platformType"))}
-        ${detailRow("Platform URL", field("platform_url", "platformUrl"))}
-        ${detailRow("Platform domain", field("platform_domain", "platformDomain"))}
-        ${detailRow("Platform IP", field("platform_ip", "platformIp"))}
-        ${detailRow("Client IP", field("ip", "ip"))}
-        ${detailRow("IP source", field("ip_source", "ipSource"))}
-        ${detailRow("Country / Region / City", [event.country, event.region, event.city].filter(Boolean).join(" / "))}
-        ${detailRow("ASN", event.asn ? `${event.asn}${event.asOrganization ? ` · ${event.asOrganization}` : ""}` : "")}
-        ${detailRow("Browser", `${event.browser || ""}${event.browserVersion ? ` ${event.browserVersion}` : ""}`)}
-        ${detailRow("OS", `${event.os || ""}${event.osVersion ? ` ${event.osVersion}` : ""}`)}
-        ${detailRow("Device", [event.device, event.deviceVendor, event.deviceModel].filter(Boolean).join(" · "))}
-        ${detailRow("Screen", [event.screenWidth, event.screenHeight].filter(value => value != null).join("×"))}
-        ${detailRow("Viewport", [event.viewportWidth, event.viewportHeight].filter(value => value != null).join("×"))}
-        ${detailRow("Duration", dur(event.durationMs))}
-        ${detailRow("Scroll", `${event.maxScroll ?? 0}%`)}
-        ${detailRow("Clicks", `${event.clicks ?? 0} / ${event.outboundClicks ?? 0} outbound`)}
-        ${detailRow("Page", field("page_url", "pageUrl"))}
-        ${detailRow("Path", event.path)}
-        ${detailRow("Referrer", field("referrer", "referrerHost"))}
-        ${detailRow("UTM", [event.utmSource, event.utmMedium, event.utmCampaign, event.utmTerm, event.utmContent].filter(Boolean).join(" / "))}
-      </div>
-      <details><summary>data_json</summary><pre>${esc(prettyJson(field("data_json", "dataJson")))}</pre></details>
-      <details><summary>metadata_json</summary><pre>${esc(prettyJson(field("metadata_json", "metadataJson")))}</pre></details>
-      <details><summary>headers_json</summary><pre>${esc(prettyJson(field("headers_json", "headersJson")))}</pre></details>
-      <details><summary>request_json</summary><pre>${esc(prettyJson(field("request_json", "requestJson")))}</pre></details>
-      <details><summary>cf_json</summary><pre>${esc(prettyJson(field("cf_json", "cfJson")))}</pre></details>
-      <details><summary>payload_json</summary><pre>${esc(prettyJson(field("payload_json", "payloadJson")))}</pre></details>
-      <details><summary>raw_event_json</summary><pre>${esc(prettyJson(field("raw_event_json", "rawEventJson")))}</pre></details>`;
-    el.modal.classList.add("show");
-    el.modal.setAttribute("aria-hidden", "false");
-  }
-
-  function closeModal() {
-    el.modal?.classList.remove("show");
-    el.modal?.setAttribute("aria-hidden", "true");
-  }
-
-  function theme() {
-    const light = document.documentElement.dataset.theme === "light";
-    const next = light ? "dark" : "light";
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem("uei-theme", next); } catch { /* ignore */ }
-  }
-
-  function filterPlatforms() {
-    const query = String(el.search?.value || "").toLowerCase().trim();
-    [...(el.platform?.options || [])].forEach(option => {
-      if (!option.value) return;
-      option.hidden = Boolean(query && !option.text.toLowerCase().includes(query));
-    });
-  }
-
-  $("refreshBtn")?.addEventListener("click", () => refresh(true));
-  $("healthBtn")?.addEventListener("click", () => loadHealth(true, true));
-  $("diagBtn")?.addEventListener("click", () => loadHealth(true, true));
-  $("themeBtn")?.addEventListener("click", theme);
-  el.search?.addEventListener("input", filterPlatforms);
-  el.platform?.addEventListener("change", () => {
-    state.platform = el.platform.value;
-    loadData().catch(error => toast(`Platform load failed: ${error.message}`, true));
-  });
-  document.querySelectorAll("#rangeSeg button").forEach(button => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll("#rangeSeg button").forEach(item => item.classList.remove("active"));
-      button.classList.add("active");
-      state.days = button.dataset.days;
-      loadData().catch(error => toast(`Range load failed: ${error.message}`, true));
-    });
-  });
-
-  window.closeEventModal = closeModal;
-  el.modal?.addEventListener("click", event => {
-    if (event.target === el.modal) closeModal();
-  });
-  document.addEventListener("keydown", event => {
-    if (event.key === "Escape") closeModal();
-  });
-  window.addEventListener("error", event => console.error(event.error || event.message));
-  window.addEventListener("unhandledrejection", event => console.error(event.reason));
-
-  if ($("footVersion")) $("footVersion").textContent = "v9 universal";
-
-  (async () => {
-    try {
-      try { document.documentElement.dataset.theme = localStorage.getItem("uei-theme") || "dark"; } catch { /* ignore */ }
-      await new Promise(resolve => setTimeout(resolve, 500));
-      el.boot?.classList.add("hidden");
-      await refresh(false);
-    } catch (error) {
-      toast(`Dashboard initialization failed: ${error.message}`, true);
-    }
-
-    setInterval(() => refresh(false), Math.max(30000, Number(C.autoRefreshMs || 45000)));
-  })();
+payload = ${JSON.stringify(payload,null,2)}
+r = requests.post("${W}/v1/events", json=payload, timeout=15)
+print(r.status_code, r.json())`}
+  function exportCsv(){const rows=state.events||[];if(!rows.length)return toast('Eventی برای export وجود ندارد.',true);const cols=['receivedAt','eventId','platformId','eventType','ip','country','region','city','browser','os','device','path','durationMs','maxScroll','clicks','outboundClicks'];const csv=[cols.join(','),...rows.map(r=>cols.map(k=>`"${String(r[k]??'').replaceAll('"','""')}"`).join(','))].join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`uei-events-${new Date().toISOString().slice(0,19).replaceAll(':','-')}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+  async function copy(text){try{await navigator.clipboard.writeText(text);toast('کپی شد.')}catch{toast('کپی خودکار در این مرورگر در دسترس نیست.',true)}}
+  function bind(){
+    $('refreshBtn').addEventListener('click',()=>refresh());$('healthBtn').addEventListener('click',()=>refresh({silent:false}));$('themeBtn').addEventListener('click',()=>{state.theme=state.theme==='dark'?'light':'dark';applyTheme()});el.platform.addEventListener('change',async e=>{state.platform=e.target.value;await loadPlatform()});el.search.addEventListener('input',()=>populatePlatforms(el.search.value));document.querySelectorAll('#rangeSeg button').forEach(b=>b.addEventListener('click',async()=>{document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.days=b.dataset.days;await (state.platform==='*'?refresh():loadPlatform())}));document.querySelectorAll('#clientTabs button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#clientTabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');state.clientKind=b.dataset.kind;renderClient()}));$('exportBtn').addEventListener('click',exportCsv);$('clearCacheBtn').addEventListener('click',()=>{state.cache={};toast('کش نمایشی پاک شد.');refresh()});el.backdrop.addEventListener('click',closeDrawer);$('closeDrawer').addEventListener('click',closeDrawer);$('closeAdmin').addEventListener('click',closeAdmin);$('cancelAdminBtn').addEventListener('click',closeAdmin);$('loadAdminBtn').addEventListener('click',loadAdmin);document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();closeAdmin()}});document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>copy(b.dataset.copy.replace('${WORKER}',W))));document.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>window.open(W+b.dataset.open,'_blank','noopener')));document.querySelectorAll('[data-copy-code]').forEach(b=>b.addEventListener('click',()=>copy($(b.dataset.copyCode).textContent||'')))}
+  async function init(){applyTheme();bind();populatePlatforms();renderApiExamples();setTimeout(()=>el.boot.classList.add('hidden'),650);await refresh();setInterval(()=>refresh({silent:true}),Number(C.autoRefreshMs||45000));setInterval(()=>{if(!document.hidden)api('/v1/health').then(v=>{state.health=v;renderHealth()}).catch(()=>{})},Number(C.healthRefreshMs||120000))}
+  init().catch(e=>{toast(`خطای راه‌اندازی: ${e.message}`,true);setLive('error','Startup Error')});
 })();

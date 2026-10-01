@@ -1,15 +1,80 @@
 {
-  "name": "Universal Event Insights API",
-  "version": "v1",
-  "workerVersion": "9.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Universal Event Insights API",
+  "description": "Machine-readable contract for the Universal Event Insights v1 API. Clients and AI agents should discover the live contract from /v1/schema before integration.",
+  "apiVersion": "v1",
+  "workerVersion": "10.2.0",
+  "databaseSchema": "9.0",
   "baseUrl": "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  "deployment": {
+    "provider": "Cloudflare Workers",
+    "sourceControl": "GitHub",
+    "requestDriven": true,
+    "cronRequired": false
+  },
   "collection": {
     "method": "POST",
     "path": "/v1/events",
     "required": [
       "platformId"
     ],
-    "maxBodyBytes": 131072
+    "aliases": [
+      "/v1/collect",
+      "/collect"
+    ],
+    "maxBodyBytes": 131072,
+    "contentType": "application/json",
+    "arbitraryEventTypes": true
+  },
+  "recommendedEventTypes": [
+    "pageview",
+    "heartbeat",
+    "pageleave",
+    "visibility",
+    "click",
+    "outbound_click",
+    "scroll",
+    "request",
+    "login",
+    "logout",
+    "purchase",
+    "error",
+    "custom"
+  ],
+  "readEndpoints": [
+    "GET /v1/platforms",
+    "GET /v1/overview?days=7",
+    "GET /v1/platforms/<platformId>?days=7",
+    "GET /v1/platforms/<platformId>/events?days=7&limit=100",
+    "GET /v1/platforms/<platformId>/visitors?limit=100",
+    "GET /v1/platforms/<platformId>/sessions?limit=100",
+    "GET /v1/events?days=7&limit=100",
+    "GET /v1/stats?platform=<platformId>&days=7",
+    "GET /v1/schema"
+  ],
+  "adminEndpoints": [
+    "GET /v1/admin/events",
+    "GET /v1/admin/event?id=<eventId>",
+    "GET /v1/admin/notifications",
+    "POST /v1/admin/archive-retry/<eventId>",
+    "POST /v1/admin/platform-key"
+  ],
+  "telegramEndpoints": [
+    "GET /telegram/setup",
+    "GET /telegram/test",
+    "POST /telegram/webhook"
+  ],
+  "archive": {
+    "type": "GitHub Contents API",
+    "pattern": "data/platforms/<platformId>/events/YYYY/MM/DD/<timestamp>_<eventId>.json",
+    "background": true,
+    "failureRecovery": "event_archives + admin retry"
+  },
+  "privacy": {
+    "rawIpStored": true,
+    "ipHashStored": true,
+    "sensitiveHeaderRedaction": true,
+    "note": "Operators must apply the privacy and retention rules appropriate to their jurisdiction and audience."
   },
   "eventColumns": [
     "id",
@@ -110,47 +175,142 @@
     "raw_event_json"
   ],
   "eventColumnCount": 96,
-  "eventTypes": [
-    "pageview",
-    "heartbeat",
-    "pageleave",
-    "visibility",
-    "click",
-    "outbound_click",
-    "scroll",
-    "request",
-    "login",
-    "logout",
-    "purchase",
-    "error",
-    "custom"
+  "minimumEventExample": {
+    "platformId": "my-platform"
+  },
+  "recommendedEventExample": {
+    "platformId": "my-platform",
+    "platformName": "My Platform",
+    "platformType": "web",
+    "eventType": "pageview",
+    "eventId": "client-generated-id",
+    "identity": {
+      "visitorId": "visitor-123",
+      "sessionId": "session-123"
+    },
+    "page": {
+      "url": "https://example.com/dashboard",
+      "path": "/dashboard",
+      "title": "Dashboard"
+    },
+    "screen": {
+      "width": 1920,
+      "height": 1080,
+      "devicePixelRatio": 1,
+      "colorDepth": 24
+    },
+    "viewport": {
+      "width": 1500,
+      "height": 900
+    },
+    "connection": {
+      "effectiveType": "4g",
+      "downlink": 10,
+      "rtt": 40,
+      "saveData": false
+    },
+    "data": {
+      "example": "value"
+    },
+    "metadata": {
+      "source": "my-app"
+    }
+  },
+  "errorCodes": [
+    "INVALID_JSON",
+    "EMPTY_BODY",
+    "INVALID_PAYLOAD",
+    "PAYLOAD_TOO_LARGE",
+    "PLATFORM_ID_REQUIRED",
+    "D1_NOT_CONFIGURED",
+    "D1_STORE_FAILED",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "INTERNAL_ERROR",
+    "GITHUB_ARCHIVE_FAILED"
   ],
-  "readEndpoints": [
-    "GET /v1/platforms",
-    "GET /v1/overview?days=7",
-    "GET /v1/platforms/<platformId>?days=7",
-    "GET /v1/platforms/<platformId>/events?days=7&limit=100",
-    "GET /v1/platforms/<platformId>/visitors?limit=100",
-    "GET /v1/platforms/<platformId>/sessions?limit=100",
-    "GET /v1/events?days=7&limit=100",
-    "GET /v1/schema"
-  ],
-  "adminEndpoints": [
-    "GET /v1/admin/events",
-    "GET /v1/admin/event?id=<eventId>",
-    "GET /v1/admin/notifications",
-    "POST /v1/admin/archive-retry/<eventId>",
-    "POST /v1/admin/platform-key"
-  ],
-  "telegramEndpoints": [
-    "GET /telegram/setup",
-    "GET /telegram/test",
-    "POST /telegram/webhook"
-  ],
-  "archivePattern": "data/platforms/<platformId>/events/YYYY/MM/DD/<timestamp>_<eventId>.json",
-  "privacy": {
-    "rawIpStored": true,
-    "ipHashStored": true,
-    "sensitiveHeaderRedaction": true
+  "integrationRules": {
+    "discoverSchemaFirst": "GET /v1/schema",
+    "discoverPlatforms": "GET /v1/platforms",
+    "collectEndpoint": "POST /v1/events",
+    "identity": "platformId is the stable namespace for a sending platform",
+    "eventIdempotency": "Clients should send a stable eventId when retrying the same event",
+    "customEvents": "Any sanitized eventType is accepted; recommended types are suggestions only",
+    "payloadPreservation": "data, metadata and sanitized request snapshots are stored in D1",
+    "secrets": "Never send GitHub, admin, Telegram or platform secrets in public client code or event payloads"
+  },
+  "fieldAliases": {
+    "platformId": [
+      "platformId",
+      "platform_id",
+      "platform.id",
+      "platform.platformId"
+    ],
+    "platformName": [
+      "platformName",
+      "platform_name",
+      "name",
+      "label"
+    ],
+    "platformType": [
+      "platformType",
+      "platform_type",
+      "typeName",
+      "type"
+    ],
+    "eventType": [
+      "eventType",
+      "event_type",
+      "eventName",
+      "event_name"
+    ],
+    "eventId": [
+      "eventId",
+      "event_id"
+    ],
+    "visitorId": [
+      "visitorId",
+      "visitor_id",
+      "identity.visitorId",
+      "identity.visitor_id"
+    ],
+    "sessionId": [
+      "sessionId",
+      "session_id",
+      "identity.sessionId",
+      "identity.session_id"
+    ],
+    "pageUrl": [
+      "pageUrl",
+      "page_url",
+      "page.url"
+    ],
+    "path": [
+      "path",
+      "pagePath",
+      "page_path",
+      "page.path"
+    ],
+    "referrer": [
+      "referrer",
+      "page.referrer"
+    ],
+    "platformIp": [
+      "platformIp",
+      "platform_ip",
+      "serverIp",
+      "server_ip",
+      "network.platformIp",
+      "network.platform_ip"
+    ]
+  },
+  "responseSemantics": {
+    "201": "Event was created in D1. GitHub archive may continue in the background.",
+    "202": "Event was accepted and stored in D1, but aggregate/index processing reported a degraded condition.",
+    "200_duplicate": "The supplied eventId already exists; the event was not inserted again.",
+    "400": "The request payload, URL path, or identifier is invalid.",
+    "401": "Admin or platform authentication is missing or invalid.",
+    "413": "The request body exceeds the maximum configured size.",
+    "503": "A required dependency is unavailable or the requested optional service is not configured."
   }
 }

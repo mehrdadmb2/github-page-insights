@@ -1,13 +1,7 @@
 -- Universal Event Insights D1 schema v9
--- Reference schema. For Cloudflare Dashboard D1 Console, use db/console/*.sql one file at a time.
-
-DROP TABLE IF EXISTS notification_log;
-DROP TABLE IF EXISTS event_archives;
-DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS platform_sessions;
-DROP TABLE IF EXISTS platform_visitors;
-DROP TABLE IF EXISTS platforms;
-DROP TABLE IF EXISTS schema_meta;
+-- SAFE CREATE-ONLY REFERENCE SCHEMA.
+-- For Cloudflare D1 Console, do not paste this whole file.
+-- Use db/console/INSTALL/*.sql one statement at a time.
 
 CREATE TABLE schema_meta (
   key TEXT PRIMARY KEY,

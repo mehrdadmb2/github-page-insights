@@ -1,4 +1,4 @@
-const VERSION = "9.0.0";
+const VERSION = "10.2.0";
 const SERVICE = "universal-event-insights-worker";
 const GH_API = "https://api.github.com";
 const GH_API_VERSION = "2026-03-10";
@@ -13,7 +13,7 @@ const ARCHIVE_ATTEMPTS = 5;
 const ARCHIVE_TIMEOUT_MS = 15000;
 const TELEGRAM_TIMEOUT_MS = 10000;
 
-const EVENT_TYPES = new Set([
+const RECOMMENDED_EVENT_TYPES = new Set([
   "pageview", "heartbeat", "pageleave", "visibility", "click",
   "outbound_click", "scroll", "request", "login", "logout",
   "purchase", "error", "custom"
@@ -106,6 +106,7 @@ export default {
           database: "Cloudflare D1",
           archive: "GitHub Contents API",
           telegram: "optional",
+          databaseSchema: "9.0",
           endpoints: apiContract().endpoints
         }));
       }
@@ -317,25 +318,46 @@ async function collect(request, env, ctx, requestId, started) {
 
   let archive = {
     ok: false,
-    status: "pending",
-    pending: false,
-    reason: "not_attempted"
+    status: "scheduled",
+    pending: Boolean(ctx?.waitUntil),
+    reason: "background"
   };
 
-  try {
-    archive = await archiveToGithub(env, event, requestId, storage);
-  } catch (error) {
-    log("error", "GITHUB_ARCHIVE_FAILED", {
-      requestId,
-      eventId: event.eventId,
-      platformId: event.platformId,
-      error: String(error?.message || error)
-    });
-    archive = {
-      ok: false,
-      status: "failed",
-      error: String(error?.message || error)
-    };
+  const archiveTask = async () => {
+    try {
+      const result = await archiveToGithub(env, event, requestId, storage);
+      log("info", result.ok ? "GITHUB_ARCHIVE_SUCCESS" : "GITHUB_ARCHIVE_RESULT", {
+        requestId,
+        eventId: event.eventId,
+        platformId: event.platformId,
+        status: result.status || null,
+        attempts: result.attempts || null
+      });
+      return result;
+    } catch (error) {
+      log("error", "GITHUB_ARCHIVE_FAILED", {
+        requestId,
+        eventId: event.eventId,
+        platformId: event.platformId,
+        error: String(error?.message || error)
+      });
+      try {
+        await recordArchive(env, event, "failed", ARCHIVE_ATTEMPTS, null, null, String(error?.message || error));
+      } catch (recordError) {
+        log("error", "ARCHIVE_STATE_RECORD_FAILED", {
+          requestId,
+          eventId: event.eventId,
+          error: String(recordError?.message || recordError)
+        });
+      }
+      return { ok: false, status: "failed", error: String(error?.message || error) };
+    }
+  };
+
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(archiveTask());
+  } else {
+    archive = await archiveTask();
   }
 
   if (shouldNotify(env, event, storage)) {
@@ -351,14 +373,15 @@ async function collect(request, env, ctx, requestId, started) {
   }
 
   const responseOk = storage.aggregateOk;
-  const httpStatus = responseOk ? (archive.ok ? 201 : 202) : 202;
+  const httpStatus = responseOk ? 201 : 202;
   log("info", "COLLECT_COMPLETE", {
     requestId,
     eventId: event.eventId,
     platformId: event.platformId,
     d1: true,
     aggregates: storage.aggregateOk,
-    github: archive.ok,
+    github: archive.ok || archive.status === "scheduled",
+    archiveStatus: archive.status || null,
     elapsedMs: Date.now() - started
   });
 
@@ -370,7 +393,7 @@ async function collect(request, env, ctx, requestId, started) {
     eventId: event.eventId,
     platformId: event.platformId,
     eventType: event.eventType,
-    stored: { d1: true, github: archive.ok },
+    stored: { d1: true, github: archive.ok ? true : (archive.status === "scheduled" ? "scheduled" : false) },
     d1: {
       event: true,
       aggregates: storage.aggregateOk,
@@ -406,8 +429,10 @@ async function normalizeEvent(request, payload, requestId) {
     throw Error("INVALID_PAYLOAD");
   }
 
+  const platformObject = objectOrEmpty(payload.platform);
   const platformId = normalizePlatformId(
-    payload.platformId || payload.platform_id || payload.platform || payload.platformName ||
+    payload.platformId || payload.platform_id || platformObject.id || platformObject.platformId ||
+    (typeof payload.platform === "string" ? payload.platform : null) || payload.platformName ||
     payload.platform_name || payload.name || payload.app || payload.application || payload.source
   );
   if (!platformId) throw Error("PLATFORM_ID_REQUIRED");
@@ -442,8 +467,8 @@ async function normalizeEvent(request, payload, requestId) {
   const sdkVersion = clean(payload.sdkVersion || payload.sdk_version, 64);
   const source = clean(payload.source || payload.origin || payload.channel || "api", 128) || "api";
 
-  const rawType = String(payload.eventType || payload.event_type || payload.type || "custom").toLowerCase();
-  const eventType = EVENT_TYPES.has(rawType) ? rawType : "custom";
+  const rawType = payload.eventType || payload.event_type || payload.eventName || payload.event_name || "custom";
+  const eventType = normalizeEventType(rawType);
   const eventId = clean(payload.eventId || payload.event_id || crypto.randomUUID(), 128) || crypto.randomUUID();
   const receivedAt = new Date().toISOString();
   const occurredAt = normalizeOccurredAt(payload.timestamp || payload.occurredAt || payload.occurred_at, receivedAt);
@@ -636,11 +661,11 @@ async function normalizeEvent(request, payload, requestId) {
     maxScroll: safeInt(payload.maxScroll ?? payload.scrollDepth ?? payload.scroll_depth, 0, 100) || 0,
     clicks: safeInt(payload.clicks, 0, 100000) || 0,
     outboundClicks: safeInt(payload.outboundClicks ?? payload.outbound_clicks, 0, 100000) || 0,
-    utmSource: utm.source,
-    utmMedium: utm.medium,
-    utmCampaign: utm.campaign,
-    utmTerm: utm.term,
-    utmContent: utm.content,
+    utmSource: utm.source || clean(payload.utmSource || payload.utm_source, 256),
+    utmMedium: utm.medium || clean(payload.utmMedium || payload.utm_medium, 256),
+    utmCampaign: utm.campaign || clean(payload.utmCampaign || payload.utm_campaign, 256),
+    utmTerm: utm.term || clean(payload.utmTerm || payload.utm_term, 256),
+    utmContent: utm.content || clean(payload.utmContent || payload.utm_content, 256),
     dataJson: safeJson(dataObject, MAX_JSON_FIELD_BYTES),
     metadataJson: safeJson(metadataObject, MAX_METADATA_BYTES),
     headersJson: safeJson(rawHeaders, MAX_METADATA_BYTES),
@@ -1135,7 +1160,7 @@ function telegramEnabled(env) {
   return Boolean(
     env.TELEGRAM_BOT_TOKEN &&
     env.TELEGRAM_ADMIN_CHAT_ID &&
-    String(env.TELEGRAM_ENABLED ?? "true").toLowerCase() === "true"
+    String(env.TELEGRAM_ENABLED ?? "false").toLowerCase() === "true"
   );
 }
 
@@ -1842,7 +1867,7 @@ async function buildHealth(env, requestId, probeGithub = false) {
       githubOwner: env.GITHUB_OWNER || null,
       githubRepository: env.GITHUB_REPO || null,
       githubBranch: env.GITHUB_BRANCH || null,
-      telegramEnabled: String(env.TELEGRAM_ENABLED ?? "true").toLowerCase() === "true",
+      telegramEnabled: String(env.TELEGRAM_ENABLED ?? "false").toLowerCase() === "true",
       telegramConfigured: telegramEnabled(env),
       telegramBotToken: Boolean(env.TELEGRAM_BOT_TOKEN),
       telegramAdminConfigured: Boolean(env.TELEGRAM_ADMIN_CHAT_ID)
@@ -1867,6 +1892,13 @@ async function buildHealth(env, requestId, probeGithub = false) {
 
 async function checkDatabase(env) {
   const started = Date.now();
+  const expectedTables = ["schema_meta", "platforms", "platform_visitors", "platform_sessions", "events", "event_archives", "notification_log"];
+  const expectedColumns = {
+    events: EVENT_COLUMNS,
+    platforms: PLATFORM_COLUMNS,
+    platform_visitors: VISITOR_COLUMNS,
+    platform_sessions: SESSION_COLUMNS
+  };
   try {
     if (!env.DB) throw Error("D1 binding DB is missing");
     await env.DB.prepare("SELECT 1 AS ok").first();
@@ -1874,26 +1906,27 @@ async function checkDatabase(env) {
     const tables = await env.DB.prepare(`
       SELECT name FROM sqlite_master
       WHERE type='table'
-      AND name IN ('schema_meta','platforms','platform_visitors','platform_sessions','events','event_archives','notification_log')
+      AND name IN (${expectedTables.map(() => "?").join(",")})
       ORDER BY name
-    `).all();
+    `).bind(...expectedTables).all();
     const tableNames = new Set((tables.results || []).map(row => row.name));
-    const missingTables = ["schema_meta", "platforms", "platform_visitors", "platform_sessions", "events", "event_archives", "notification_log"]
-      .filter(name => !tableNames.has(name));
+    const missingTables = expectedTables.filter(name => !tableNames.has(name));
 
-    const columns = await env.DB.prepare(`PRAGMA table_info(events)`).all();
-    const columnNames = new Set((columns.results || []).map(row => row.name));
-    const requiredColumns = [
-      "id", "received_at", "event_type", "platform_id", "platform_name", "platform_type",
-      "platform_url", "platform_domain", "session_id", "visitor_id", "ip", "ip_hash", "platform_ip",
-      "user_agent", "browser", "os", "device", "duration_ms", "max_scroll", "clicks", "outbound_clicks",
-      "data_json", "metadata_json", "headers_json", "cf_json", "request_json", "payload_json", "raw_event_json"
-    ];
-    const missingColumns = requiredColumns.filter(name => !columnNames.has(name));
+    const columnResults = await Promise.all(
+      Object.entries(expectedColumns).map(async ([table, columns]) => {
+        const result = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+        const actual = (result.results || []).map(row => row.name);
+        const missing = columns.filter(name => !actual.includes(name));
+        const unexpected = actual.filter(name => !columns.includes(name));
+        return [table, { actual, expected: columns, missing, unexpected }];
+      })
+    );
+    const columnChecks = Object.fromEntries(columnResults);
+    const schemaMismatch = Object.values(columnChecks).some(check => check.missing.length || check.unexpected.length || check.actual.length !== check.expected.length);
 
     let counts = { platforms: 0, events: 0, sessions: 0, visitors: 0, archives: 0, notifications: 0 };
     let latestEvent = null;
-    if (!missingTables.length) {
+    if (missingTables.length === 0) {
       const countRow = await env.DB.prepare(`
         SELECT
           (SELECT COUNT(*) FROM platforms) AS platforms,
@@ -1911,22 +1944,28 @@ async function checkDatabase(env) {
         archives: Number(countRow?.archives || 0),
         notifications: Number(countRow?.notifications || 0)
       };
-
       latestEvent = await env.DB.prepare(`
         SELECT received_at,platform_id,event_type,ip,platform_ip
         FROM events ORDER BY rowid DESC LIMIT 1
       `).first();
     }
 
-    const healthy = missingTables.length === 0 && missingColumns.length === 0;
+    const healthy = missingTables.length === 0 && !schemaMismatch;
     return {
       status: healthy ? "ok" : "error",
-      message: healthy ? "D1 is reachable and Universal v9 schema is present" : "D1 schema is incomplete",
+      message: healthy ? "D1 is reachable and Universal schema is present" : "D1 schema is incomplete or does not match the Worker contract",
       latencyMs: Date.now() - started,
+      expectedTableCount: expectedTables.length,
       tableCount: tableNames.size,
       missingTables,
-      missingColumns,
-      eventColumnCount: columnNames.size,
+      eventColumnCount: columnChecks.events?.actual.length || 0,
+      expectedEventColumnCount: EVENT_COLUMNS.length,
+      columnChecks: Object.fromEntries(Object.entries(columnChecks).map(([name, check]) => [name, {
+        actualCount: check.actual.length,
+        expectedCount: check.expected.length,
+        missing: check.missing,
+        unexpected: check.unexpected
+      }])),
       counts,
       latestEvent: latestEvent ? {
         receivedAt: latestEvent.received_at,
@@ -2016,9 +2055,10 @@ async function checkTelemetry(env) {
 ============================================================= */
 function apiContract() {
   return {
-    contractVersion: "3.0",
+    contractVersion: "4.0",
     identityField: "platformId",
     genericPayload: true,
+    arbitraryEventTypes: true,
     preservesRawPayload: true,
     rawIpStored: true,
     platformIpSupported: true,
@@ -2054,7 +2094,8 @@ function apiContract() {
       "appVersion", "sdkName", "sdkVersion", "eventType", "eventId", "identity", "page",
       "screen", "viewport", "connection", "data", "metadata", "platformIp"
     ],
-    eventTypes: [...EVENT_TYPES]
+    recommendedEventTypes: [...RECOMMENDED_EVENT_TYPES],
+    customEventTypesAllowed: true
   };
 }
 
@@ -2243,6 +2284,18 @@ function safeFloat(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return Math.min(max, Math.max(min, number));
+}
+
+function normalizeEventType(value) {
+  const normalized = String(value ?? "custom")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/]+/g, "_")
+    .replace(/[^a-z0-9_.-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^[_.-]+|[_.-]+$/g, "")
+    .slice(0, 80);
+  return normalized || "custom";
 }
 
 function normalizeOccurredAt(value, fallback) {
