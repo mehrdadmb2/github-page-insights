@@ -1,9 +1,0 @@
-{
-  "name": "github-page-insights-worker",
-  "version": "9.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "check": "node --check index.js"
-  }
-}
