@@ -1,256 +1,149 @@
-/* Universal Event Insights Browser SDK v12.1.1 — Basic-first, low-frequency collector */
+/* Universal Event Insights Browser SDK — Basic mode, one request per page load. */
 (function () {
   "use strict";
+  if (window.__PAGE_INSIGHTS_SDK_STARTED__) return;
+  window.__PAGE_INSIGHTS_SDK_STARTED__ = true;
 
-  if (window.__UEI_SDK_LOADED__) return;
-  window.__UEI_SDK_LOADED__ = true;
-
-  const C = window.PAGE_INSIGHTS_CONFIG || {};
-  const worker = String(C.workerUrl || "").replace(/\/+$/, "");
-  const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || "";
-  const value = (...xs) => xs.find((x) => x !== undefined && x !== null && String(x).trim() !== "") || "";
-
-  const platformId = String(value(
-    C.platformId,
-    meta("page-insights-platform-id"),
-    meta("page-insights-site-id"),
-    meta("uei-platform-id"),
-    location.hostname,
-    "web"
-  )).trim();
-
-  const platformName = String(value(
-    C.platformName,
-    meta("page-insights-platform-name"),
-    meta("page-insights-site-name"),
-    meta("uei-platform-name"),
-    platformId
-  )).trim();
-
-  const platformType = String(value(
-    C.platformType,
-    meta("page-insights-platform-type"),
-    meta("uei-platform-type"),
-    "web"
-  )).trim();
-
-  const environment = String(value(
-    C.environment,
-    meta("page-insights-environment"),
-    "production"
-  )).trim();
-
+  var C = window.PAGE_INSIGHTS_CONFIG || {};
+  var worker = String(C.workerUrl || "").replace(/\/+$/, "");
+  var meta = function (name) {
+    var node = document.querySelector('meta[name="' + name + '"]');
+    return node && node.content ? node.content : "";
+  };
+  var platformId = String(C.platformId || meta("page-insights-platform-id") || meta("page-insights-site-id") || location.hostname || "web").trim();
+  var platformName = String(C.platformName || meta("page-insights-platform-name") || meta("page-insights-site-name") || platformId).trim();
+  var platformType = String(C.platformType || meta("page-insights-platform-type") || "web").trim();
+  var environment = String(C.environment || meta("page-insights-environment") || "production").trim();
   if (!worker || !platformId) return;
 
-  const storageKey = `uei_v121_${platformId}`;
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const pageStart = Date.now();
-
-  function uuid() {
-    try { return crypto.randomUUID(); } catch {
-      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  var storagePrefix = "uei_v122_" + platformId;
+  var getId = function (scope, name) {
+    try {
+      var store = scope === "session" ? sessionStorage : localStorage;
+      var key = storagePrefix + "_" + name;
+      var current = store.getItem(key);
+      if (current) return current;
+      var value = crypto.randomUUID();
+      store.setItem(key, value);
+      return value;
+    } catch (_) {
+      return crypto.randomUUID();
     }
+  };
+
+  var visitorId = getId("local", "visitor");
+  var sessionId = getId("session", "session");
+  var connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  var pageStart = Date.now();
+
+  function safeJson(value) {
+    try { return JSON.stringify(value); } catch (_) { return "{}"; }
   }
 
-  function storage(kind) {
-    try { return kind === "session" ? sessionStorage : localStorage; } catch { return null; }
-  }
+  var screenInfo = {
+    width: window.screen && screen.width || null,
+    height: window.screen && screen.height || null,
+    devicePixelRatio: window.devicePixelRatio || 1,
+    colorDepth: window.screen && window.screen.colorDepth || 24
+  };
 
-  function getOrCreate(kind, key) {
-    const store = storage(kind);
-    if (!store) return uuid();
-    try {
-      const full = `${storageKey}_${key}`;
-      const old = store.getItem(full);
-      if (old) return old;
-      const id = uuid();
-      store.setItem(full, id);
-      return id;
-    } catch { return uuid(); }
-  }
+  var viewport = {
+    width: window.innerWidth || null,
+    height: window.innerHeight || null
+  };
 
-  const visitorId = getOrCreate("local", "visitor");
+  var connectionInfo = {
+    effectiveType: connection && connection.effectiveType || null,
+    type: connection && connection.type || null,
+    downlink: connection && connection.downlink != null ? connection.downlink : null,
+    rtt: connection && connection.rtt != null ? connection.rtt : null,
+    saveData: !!(connection && connection.saveData)
+  };
 
-  function sessionId() {
-    const store = storage("session");
-    const timeout = Math.max(5 * 60 * 1000, Number(C.sessionTimeoutMs || 30 * 60 * 1000));
-    const now = Date.now();
-    if (!store) return uuid();
-    try {
-      const id = store.getItem(`${storageKey}_session`);
-      const at = Number(store.getItem(`${storageKey}_session_at`) || 0);
-      if (id && now - at < timeout) {
-        store.setItem(`${storageKey}_session_at`, String(now));
-        return id;
-      }
-      const next = uuid();
-      store.setItem(`${storageKey}_session`, next);
-      store.setItem(`${storageKey}_session_at`, String(now));
-      return next;
-    } catch { return uuid(); }
-  }
+  var page = {
+    url: location.href,
+    path: location.pathname,
+    queryString: location.search.replace(/^\?/, ""),
+    title: document.title,
+    referrer: document.referrer || null
+  };
 
-  const currentSessionId = sessionId();
-  const userId = C.userId || null;
-  const anonymousId = C.anonymousId || null;
-
-  function screenInfo() {
-    return {
-      width: window.screen?.width ?? null,
-      height: window.screen?.height ?? null,
-      devicePixelRatio: window.devicePixelRatio || 1,
-      colorDepth: window.screen?.colorDepth ?? null,
-      orientation: window.screen?.orientation?.type || null
-    };
-  }
-
-  function viewportInfo() {
-    return {
-      width: window.innerWidth ?? null,
-      height: window.innerHeight ?? null
-    };
-  }
-
-  function connectionInfo() {
-    return {
-      effectiveType: connection?.effectiveType || null,
-      type: connection?.type || null,
-      downlink: connection?.downlink ?? null,
-      rtt: connection?.rtt ?? null,
-      saveData: Boolean(connection?.saveData)
-    };
-  }
-
-  function clientHints() {
-    try {
-      const u = navigator.userAgentData;
-      if (!u) return null;
-      return {
-        mobile: Boolean(u.mobile),
-        platform: u.platform || null,
-        brands: Array.isArray(u.brands) ? u.brands.slice(0, 8).map(x => ({ brand: x.brand, version: x.version })) : []
-      };
-    } catch { return null; }
-  }
-
-  function pageInfo() {
-    return {
-      url: location.href,
-      path: location.pathname,
-      queryString: location.search.slice(1),
-      title: document.title || null,
-      referrer: document.referrer || null,
-      referrerHost: (() => { try { return document.referrer ? new URL(document.referrer).hostname : null; } catch { return null; } })()
-    };
-  }
-
-  function buildEvent() {
-    return {
-      platformId,
-      platformName,
-      platformType,
-      environment,
-      platformUrl: C.platformUrl || location.origin,
-      platformDomain: location.hostname,
-      appVersion: C.appVersion || null,
-      source: "browser",
-      sdkName: "universal-event-insights-browser",
-      sdkVersion: "12.1.1",
-      eventType: "pageview",
-      eventId: uuid(),
-      timestamp: new Date().toISOString(),
-      identity: {
-        visitorId,
-        sessionId: currentSessionId,
-        userId,
-        anonymousId
-      },
-      page: pageInfo(),
+  var body = {
+    platformId: platformId,
+    platformName: platformName,
+    platformType: platformType,
+    platformUrl: location.origin,
+    platformDomain: location.hostname,
+    environment: environment,
+    appVersion: C.appVersion || null,
+    source: "browser",
+    sdkName: "universal-event-insights-browser",
+    sdkVersion: "12.2.0",
+    eventType: "pageview",
+    eventId: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    identity: {
+      visitorId: visitorId,
+      sessionId: sessionId,
+      userId: C.userId || null,
+      anonymousId: C.anonymousId || null
+    },
+    page: page,
+    screen: screenInfo,
+    viewport: viewport,
+    connection: connectionInfo,
+    durationMs: 0,
+    maxScroll: 0,
+    clicks: 0,
+    outboundClicks: 0,
+    data: {
+      sdkMode: "basic",
+      requestPolicy: "one_pageview_per_page_load"
+    },
+    metadata: {
       language: navigator.language || null,
-      timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } })(),
-      screen: screenInfo(),
-      viewport: viewportInfo(),
-      connection: connectionInfo(),
-      clientHints: clientHints(),
+      languages: Array.isArray(navigator.languages) ? navigator.languages.slice(0, 8) : [],
+      timezone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || null,
+      platform: navigator.platform || null,
+      hardwareConcurrency: navigator.hardwareConcurrency || null,
+      deviceMemory: navigator.deviceMemory || null,
+      maxTouchPoints: navigator.maxTouchPoints || 0,
       userAgent: navigator.userAgent || null,
-      durationMs: Math.max(0, Date.now() - pageStart),
-      maxScroll: 0,
-      clicks: 0,
-      outboundClicks: 0,
-      data: {
-        collectionMode: "basic",
-        requestPolicy: "one-pageview-per-load"
-      },
-      metadata: {
-        pageHost: location.hostname,
-        pageProtocol: location.protocol
+      userAgentData: navigator.userAgentData ? {
+        mobile: !!navigator.userAgentData.mobile,
+        platform: navigator.userAgentData.platform || null,
+        brands: Array.isArray(navigator.userAgentData.brands) ? navigator.userAgentData.brands.slice(0, 8) : []
+      } : null,
+      firstPaintCandidate: performance && performance.getEntriesByType ? (performance.getEntriesByType("paint")[0] || null) : null
+    }
+  };
+
+  function send() {
+    body.durationMs = Math.max(0, Date.now() - pageStart);
+    var payload = safeJson(body);
+    var sent = false;
+
+    try {
+      if (navigator.sendBeacon) {
+        var blob = new Blob([payload], { type: "text/plain;charset=UTF-8" });
+        sent = navigator.sendBeacon(worker + "/v1/events", blob);
       }
-    };
-  }
+    } catch (_) {}
 
-  function updateStatus(state, detail) {
-    try {
-      window.dispatchEvent(new CustomEvent("uei:telemetry", { detail: { state, detail: detail || null } }));
-    } catch { /* CustomEvent may be unavailable in very old browsers. */ }
-  }
+    if (sent) return;
 
-  async function sendOnce(body) {
-    const timeoutMs = Math.max(4000, Number(C.requestTimeoutMs || 10000));
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${worker}/v1/events`, {
+      fetch(worker + "/v1/events", {
         method: "POST",
-        // text/plain is a CORS-safelisted content type, so a cross-origin GitHub Pages
-        // page can send the JSON body without triggering an extra OPTIONS preflight.
         headers: { "Content-Type": "text/plain;charset=UTF-8" },
-        body: JSON.stringify(body),
+        body: payload,
         keepalive: true,
         cache: "no-store",
-        signal: controller.signal
-      });
-      let payload = null;
-      try { payload = await response.json(); } catch { /* response body may be empty */ }
-      if (!response.ok) {
-        updateStatus("failed", payload?.error || `HTTP ${response.status}`);
-        return false;
-      }
-      updateStatus("sent", payload || null);
-      return true;
-    } catch (error) {
-      updateStatus("failed", String(error?.message || error || "network error"));
-      return false;
-    } finally {
-      clearTimeout(timer);
-    }
+        credentials: "omit"
+      }).catch(function () {});
+    } catch (_) {}
   }
 
-  // Advanced telemetry is opt-in and intentionally does not affect Basic collection.
-  const advanced = C.advanced === true || C.advancedTelemetry === true;
-  if (advanced) {
-    // Optional advanced hooks are exposed through a small explicit API instead of
-    // automatically attaching high-frequency listeners.
-    window.PAGE_INSIGHTS_TRACK = function (eventType, data, metadata) {
-      const cleanType = String(eventType || "custom").slice(0, 80);
-      const event = buildEvent();
-      event.eventType = cleanType;
-      event.eventId = uuid();
-      event.data = data && typeof data === "object" ? data : {};
-      event.metadata = metadata && typeof metadata === "object" ? metadata : {};
-      return sendOnce(event);
-    };
-  }
-
-  // Prevent accidental duplicate executions caused by both sync/defer loaders or SPA
-  // re-initialization in the same tab within a very small window.
-  const tab = storage("session");
-  try {
-    const markerKey = `${storageKey}_last_pageview_at`;
-    const last = Number(tab?.getItem(markerKey) || 0);
-    if (Date.now() - last < 1500) return;
-    tab?.setItem(markerKey, String(Date.now()));
-  } catch { /* continue */ }
-
-  updateStatus("sending");
-  void sendOnce(buildEvent());
+  /* Exactly one collect attempt. No polling, timers, click, scroll, heartbeat or queue flush. */
+  send();
 })();

@@ -2,157 +2,190 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#070b14">
-  <meta name="description" content="Universal Event Insights dashboard for websites, APIs, bots, and apps.">
-  <title>Universal Event Insights</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <meta name="description" content="Universal Event Insights analytics dashboard">
+  <title>GitHub Page Insights</title>
   <link rel="icon" href="logo.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="ambient" aria-hidden="true">
-    <span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span>
-    <span class="grid-glow"></span><span class="noise"></span>
-  </div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="orb orb-a" aria-hidden="true"></div>
+  <div class="orb orb-b" aria-hidden="true"></div>
+  <div class="orb orb-c" aria-hidden="true"></div>
 
   <header class="topbar glass">
-    <a class="brand" href="./" aria-label="Universal Event Insights home">
-      <span class="brand-mark"><img src="logo.svg" alt=""></span>
-      <span class="brand-copy"><strong>Universal Event Insights</strong><small>Telemetry control center</small></span>
-    </a>
+    <div class="brand-wrap">
+      <img class="brand-logo" src="logo.svg" alt="GitHub Page Insights">
+      <div class="brand-copy">
+        <div class="brand-line"><strong>GitHub Page Insights</strong><span class="badge badge-accent">LIVE ANALYTICS</span></div>
+        <span class="brand-sub">Universal telemetry command center</span>
+      </div>
+    </div>
     <div class="top-actions">
-      <span class="status-chip" id="livePill"><i></i><b id="liveText">Connecting</b></span>
-      <button class="icon-button" id="refreshBtn" title="Refresh data" aria-label="Refresh data">↻</button>
-      <a class="icon-button" href="connect.html" title="Connect a website" aria-label="Connect a website">＋</a>
+      <span id="connectionPill" class="status-pill pending"><i></i><span>Connecting</span></span>
+      <button id="refreshBtn" class="btn icon" title="Refresh dashboard" aria-label="Refresh dashboard">↻</button>
+      <button id="themeBtn" class="btn icon" title="Toggle theme" aria-label="Toggle theme">◐</button>
     </div>
   </header>
 
-  <main class="page-shell">
-    <section class="dashboard-intro glass">
-      <div class="intro-main">
-        <div class="eyebrow">LIVE ANALYTICS · BASIC FIRST</div>
-        <div class="intro-title-row">
-          <div>
-            <h1>One command center for every connected platform.</h1>
-            <p>Visitors, sessions, pageviews, IP intelligence, geography, devices and events — without turning the basic collector into a request-heavy tracker.</p>
-          </div>
-          <span class="mode-badge">🟢 Request-driven</span>
-        </div>
-        <div class="intro-actions">
-          <a class="btn btn-primary" href="connect.html">🚀 Connect a website</a>
-          <button class="btn btn-secondary" id="advancedBtn">⚙️ Advanced analytics</button>
-        </div>
-        <div class="trust-list" aria-label="System characteristics">
-          <span>🔐 No client secrets</span><span>📡 One basic pageview</span><span>🗄️ D1-backed</span><span>📦 GitHub archive</span><span>🤖 Telegram-ready</span>
+  <main class="container">
+    <section class="hero glass">
+      <div class="hero-copy">
+        <span class="eyebrow">OBSERVABILITY / DASHBOARD</span>
+        <h1>Know who visited, where they came from, and what happened.</h1>
+        <p>Real-time analytics from your Universal Event Insights Worker, with a simple Basic mode and on-demand Advanced details.</p>
+        <div class="hero-chips">
+          <span class="chip">⚡ Request-driven</span>
+          <span class="chip">🛡️ No client secrets</span>
+          <span class="chip">📦 D1 + GitHub archive</span>
+          <span class="chip">🤖 Telegram ready</span>
         </div>
       </div>
-      <div class="intro-stat glass-inner">
-        <div class="stat-label">Selected range pageviews</div>
-        <div class="stat-number" id="heroViews">—</div>
-        <div class="stat-meta"><span id="heroVisitors">— visitors</span><span id="heroSessions">— sessions</span></div>
-        <div class="mini-health"><span class="pulse-dot"></span><span id="heroStatus">Waiting for live telemetry</span></div>
+      <div class="hero-status">
+        <div class="status-orbit"><span></span><b>LIVE</b></div>
+        <div class="hero-stat"><small>Worker</small><strong id="workerVersion">—</strong></div>
+        <div class="hero-stat"><small>Last sync</small><strong id="lastSync">—</strong></div>
       </div>
     </section>
 
-    <section class="control-bar glass" aria-label="Dashboard filters">
-      <div class="control-title"><span class="eyebrow">BASIC VIEW</span><strong>Simple by default</strong><small id="lastSync">Not synchronized yet</small></div>
-      <div class="controls">
-        <label class="control-field"><span>Platform</span><select id="platformSelect"><option value="*">All platforms</option></select></label>
-        <label class="control-field search-field"><span>Find platform</span><input id="platformSearch" type="search" placeholder="Name or platform ID…" autocomplete="off"></label>
-        <div class="range-field"><span>Range</span><div class="segmented" id="rangeSeg"><button type="button" data-days="1">1D</button><button type="button" data-days="7" class="active">7D</button><button type="button" data-days="30">30D</button><button type="button" data-days="90">90D</button><button type="button" data-days="all">ALL</button></div></div>
+    <section class="toolbar glass" aria-label="Dashboard controls">
+      <div class="control-block grow">
+        <label for="platformSelect">Platform</label>
+        <div class="select-shell">
+          <select id="platformSelect"></select>
+        </div>
       </div>
-    </section>
-
-    <section class="kpi-grid" aria-label="Key performance indicators">
-      <article class="kpi glass"><span class="kpi-icon">🏷️</span><span class="kpi-label">Platforms</span><strong id="k-platforms">—</strong><small id="k-platforms-sub">Discovered automatically</small></article>
-      <article class="kpi glass"><span class="kpi-icon">👀</span><span class="kpi-label">Pageviews</span><strong id="k-pageviews">—</strong><small>Pageview events</small></article>
-      <article class="kpi glass"><span class="kpi-icon">👤</span><span class="kpi-label">Visitors</span><strong id="k-visitors">—</strong><small>Unique visitor IDs</small></article>
-      <article class="kpi glass"><span class="kpi-icon">🧭</span><span class="kpi-label">Sessions</span><strong id="k-sessions">—</strong><small>Unique sessions</small></article>
-      <article class="kpi glass"><span class="kpi-icon">📦</span><span class="kpi-label">Events</span><strong id="k-events">—</strong><small>All stored events</small></article>
-      <article class="kpi glass"><span class="kpi-icon">⏱️</span><span class="kpi-label">Avg duration</span><strong id="k-duration">—</strong><small>Stored event duration</small></article>
-      <article class="kpi glass"><span class="kpi-icon">📜</span><span class="kpi-label">Avg scroll</span><strong id="k-scroll">—</strong><small>Recorded depth</small></article>
-      <article class="kpi glass accent"><span class="kpi-icon">⚡</span><span class="kpi-label">Last activity</span><strong id="k-last">—</strong><small id="k-last-sub">Waiting for telemetry</small></article>
-    </section>
-
-    <section class="two-column">
-      <article class="panel glass">
-        <div class="panel-head"><div><span class="eyebrow">SYSTEM</span><h2>Service health</h2></div><span class="status-badge unknown" id="overallBadge">UNKNOWN</span></div>
-        <div class="health-grid">
-          <div class="health-card unknown" id="h-worker"><span>⚙️</span><b>Worker</b><strong>—</strong><small>Runtime</small></div>
-          <div class="health-card unknown" id="h-d1"><span>🗄️</span><b>D1</b><strong>—</strong><small>Database</small></div>
-          <div class="health-card unknown" id="h-gh"><span>📦</span><b>GitHub</b><strong>—</strong><small>Archive</small></div>
-          <div class="health-card unknown" id="h-tg"><span>🤖</span><b>Telegram</b><strong>—</strong><small>Bot integration</small></div>
+      <div class="control-block">
+        <label for="platformSearch">Find platform</label>
+        <input id="platformSearch" class="input" type="search" placeholder="Search by name or ID…" autocomplete="off">
+      </div>
+      <div class="control-block">
+        <label>Time range</label>
+        <div id="rangeSeg" class="segmented">
+          <button data-days="1">24h</button>
+          <button data-days="7" class="active">7d</button>
+          <button data-days="30">30d</button>
+          <button data-days="90">90d</button>
+          <button data-days="all">All</button>
         </div>
-        <div class="panel-foot" id="healthMeta">Checking system health…</div>
-      </article>
+      </div>
+      <button id="healthBtn" class="btn secondary">🩺 Health check</button>
+      <a id="connectBtn" class="btn primary" href="connect.html">🔌 Connect a site</a>
+    </section>
 
-      <article class="panel glass quick-panel">
-        <div class="panel-head"><div><span class="eyebrow">QUICK START</span><h2>Connect and find data</h2></div><span class="tag">3 steps</span></div>
-        <div class="steps">
-          <div><b>01</b><span><strong>Connect</strong> one site with the generated snippet.</span></div>
-          <div><b>02</b><span><strong>Open</strong> the site once to create its first pageview.</span></div>
-          <div><b>03</b><span><strong>Refresh</strong> this dashboard and select its platform.</span></div>
+    <section id="metrics" class="metrics-grid" aria-live="polite"></section>
+
+    <section class="health-grid">
+      <article class="glass health-summary">
+        <div class="section-title"><div><span class="eyebrow">SERVICE HEALTH</span><h2 id="healthTitle">Checking service…</h2></div><span id="overallBadge" class="badge badge-neutral">PENDING</span></div>
+        <p id="healthMeta" class="muted">The dashboard uses the Worker API. Health diagnostics are on-demand to keep D1 usage low.</p>
+        <div class="health-cards">
+          <div id="healthWorker" class="health-card pending"><span>⚙️</span><div><strong>Worker</strong><small id="healthWorkerText">Not checked</small></div></div>
+          <div id="healthData" class="health-card pending"><span>🗄️</span><div><strong>Data API</strong><small id="healthDataText">Waiting for data</small></div></div>
+          <div id="healthArchive" class="health-card pending"><span>📦</span><div><strong>GitHub archive</strong><small id="healthArchiveText">Use health check</small></div></div>
+          <div id="healthTelegram" class="health-card pending"><span>🤖</span><div><strong>Telegram</strong><small id="healthTelegramText">Use health check</small></div></div>
         </div>
-        <a class="btn btn-secondary wide" href="connect.html">📘 Open connection guide</a>
+      </article>
+
+      <article class="glass quick-card">
+        <div class="section-title"><div><span class="eyebrow">QUICK START</span><h2>Connect another website</h2></div><span class="badge badge-success">BASIC</span></div>
+        <div class="quick-steps">
+          <div><b>01</b><span>Create a stable <code>platformId</code></span></div>
+          <div><b>02</b><span>Load <code>analytics.js</code></span></div>
+          <div><b>03</b><span>Open the site once</span></div>
+          <div><b>04</b><span>Select it above</span></div>
+        </div>
+        <a class="text-link" href="connect.html">Open connection wizard →</a>
       </article>
     </section>
 
-    <section class="content-grid">
-      <article class="panel glass chart-panel">
-        <div class="panel-head"><div><span class="eyebrow">TRAFFIC</span><h2>Activity trend</h2></div><span class="muted" id="trafficInfo">—</span></div>
-        <div class="chart-shell" id="trafficChart"><div class="empty">Waiting for telemetry…</div></div>
+    <section class="dashboard-grid">
+      <article class="glass panel chart-panel span-2">
+        <div class="section-title"><div><span class="eyebrow">TRAFFIC</span><h2>Activity over time</h2></div><span id="trafficSummary" class="mini-stat">—</span></div>
+        <div id="trafficChart" class="traffic-chart"></div>
       </article>
-      <article class="panel glass">
-        <div class="panel-head"><div><span class="eyebrow">PLATFORMS</span><h2>Connected platforms</h2></div><span class="muted" id="platformCount">—</span></div>
-        <div class="platform-list" id="platformBars"><div class="empty compact">No platform data yet.</div></div>
+
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">PLATFORMS</span><h2>Connected platforms</h2></div><span id="platformCount" class="mini-stat">0</span></div>
+        <div id="platformBars" class="bar-list"></div>
+      </article>
+
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">CLIENT</span><h2>Browser / OS / Device</h2></div><div id="clientTabs" class="tiny-tabs"><button data-kind="browser" class="active">Browser</button><button data-kind="os">OS</button><button data-kind="device">Device</button></div></div>
+        <div id="clientRank" class="rank-list"></div>
+      </article>
+
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">GEO</span><h2>Countries</h2></div><span class="mini-stat">Top 10</span></div>
+        <div id="countries" class="rank-list"></div>
+      </article>
+
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">IP INTELLIGENCE</span><h2>Recent IPs</h2></div><span class="mini-stat">Top 10</span></div>
+        <div id="ips" class="rank-list"></div>
       </article>
     </section>
 
-    <section class="panel glass recent-panel">
-      <div class="panel-head"><div><span class="eyebrow">VISITOR STREAM</span><h2>Recent activity</h2><p>Click any row for the full visitor snapshot.</p></div><div class="panel-actions"><span class="count-badge" id="eventCount">0</span><button class="btn btn-secondary small" id="exportBtn">⬇️ Export CSV</button></div></div>
+    <section class="glass panel">
+      <div class="section-title section-title-stack-mobile">
+        <div><span class="eyebrow">RECENT TELEMETRY</span><h2>Latest visitor activity</h2><p class="muted">Click a row to inspect the full visitor snapshot.</p></div>
+        <div class="title-actions"><span id="eventCount" class="badge badge-neutral">0</span><button id="exportBtn" class="btn secondary">⇩ Export CSV</button></div>
+      </div>
       <div class="table-wrap">
-        <table class="events-table">
-          <thead><tr><th>Time</th><th>Platform</th><th>Event</th><th>IP</th><th>Location</th><th>Device</th><th>Page</th></tr></thead>
-          <tbody id="eventsBody"><tr><td colspan="7"><div class="empty">Waiting for telemetry…</div></td></tr></tbody>
+        <table>
+          <thead><tr><th>Time</th><th>Event</th><th>IP</th><th>Location</th><th>Device</th><th>Browser / OS</th><th>Page</th></tr></thead>
+          <tbody id="eventsBody"></tbody>
         </table>
       </div>
     </section>
 
-    <section class="advanced-wrap hidden" id="advancedSection">
-      <div class="advanced-banner glass">
-        <div><span class="eyebrow">ADVANCED</span><h2>Deep telemetry</h2><p>Only loaded when requested. Basic remains the low-query view.</p></div>
-        <button class="btn btn-secondary" id="advancedCloseBtn">✕ Close</button>
+    <section class="advanced-head">
+      <div><span class="eyebrow">ADVANCED ANALYTICS</span><h2>Deep details — load only when needed</h2><p class="muted">These sections use the same platform response and stay read-only. Nothing here creates collection traffic.</p></div>
+      <span class="badge badge-warning">ON DEMAND</span>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">TOP PAGES</span><h2>Pages with the most views</h2></div></div>
+        <div id="topPages" class="rank-list"></div>
+      </article>
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">EVENT TYPES</span><h2>Event distribution</h2></div></div>
+        <div id="eventTypes" class="event-grid"></div>
+      </article>
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">SOURCES</span><h2>Referrers / UTM</h2></div></div>
+        <div id="sources" class="rank-list"></div>
+      </article>
+      <article class="glass panel">
+        <div class="section-title"><div><span class="eyebrow">HTTP</span><h2>Status distribution</h2></div></div>
+        <div id="statuses" class="event-grid"></div>
+      </article>
+    </section>
+
+    <section class="glass panel api-panel">
+      <div class="section-title section-title-stack-mobile">
+        <div><span class="eyebrow">API PLAYGROUND</span><h2>Copy a working request</h2><p class="muted">These examples use the current Worker URL and current public read/write contract.</p></div>
       </div>
-      <div class="advanced-grid three">
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">GEO</span><h3>Countries</h3></div></div><div class="rank-list" id="countries"></div></article>
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">CLIENT</span><h3>Browser · OS · Device</h3></div></div><div class="tabs" id="clientTabs"><button type="button" class="active" data-kind="browser">Browser</button><button type="button" data-kind="os">OS</button><button type="button" data-kind="device">Device</button></div><div class="rank-list" id="clientRank"></div></article>
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">NETWORK</span><h3>IP intelligence</h3></div></div><div class="rank-list" id="ips"></div></article>
-      </div>
-      <div class="advanced-grid two">
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">CONTENT</span><h3>Top pages</h3></div></div><div class="rank-list" id="topPages"></div></article>
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">SOURCES</span><h3>Referrer / UTM</h3></div></div><div class="rank-list" id="sources"></div></article>
-      </div>
-      <div class="advanced-grid two">
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">EVENTS</span><h3>Event types</h3></div></div><div class="card-grid" id="eventTypes"></div></article>
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">HTTP</span><h3>Status codes</h3></div></div><div class="card-grid" id="statuses"></div></article>
-      </div>
+      <div class="code-tabs"><button data-code="curl" class="active">cURL</button><button data-code="js">JavaScript</button><button data-code="py">Python</button></div>
+      <div class="code-shell"><button id="copyCodeBtn" class="copy-code">Copy</button><pre id="codeBlock"></pre></div>
     </section>
   </main>
 
-  <aside class="drawer" id="eventDrawer" aria-hidden="true" aria-label="Event details">
-    <div class="drawer-head"><div><span class="eyebrow">EVENT INSPECTOR</span><h2 id="drawerTitle">Event</h2></div><button class="icon-button" id="closeDrawer" aria-label="Close event details">✕</button></div>
-    <div class="drawer-body" id="drawerBody"></div>
+  <aside id="eventDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head"><div><span class="eyebrow">EVENT INSPECTOR</span><h2 id="drawerTitle">Event</h2></div><button id="closeDrawer" class="btn icon">×</button></div>
+    <div id="drawerBody" class="drawer-body"></div>
   </aside>
-  <div class="backdrop" id="drawerBackdrop"></div>
-  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
 
-  <footer class="footer"><span>Universal Event Insights</span><span>Worker <b id="footVersion">—</b></span><span>D1 schema <b>9.0</b></span><span>Dashboard <b>12.1</b></span></footer>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <footer class="footer"><span>Universal Event Insights</span><span>Basic collection: one pageview request per page load</span><a href="connect.html">Connection wizard</a></footer>
 
   <script src="config.js"></script>
-  <script src="analytics.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="analytics.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

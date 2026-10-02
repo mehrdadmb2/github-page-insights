@@ -1,19 +1,15 @@
-window.PAGE_INSIGHTS_CONFIG = {
-  workerUrl: "http://127.0.0.1:8765",
-  dashboardUrl: "https://mehrdadmb2.github.io/github-page-insights/",
-  analyticsUrl: "https://mehrdadmb2.github.io/github-page-insights/analytics.js",
+window.PAGE_INSIGHTS_CONFIG = Object.assign({
+  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
   platformId: "github-page-insights-dashboard",
   platformName: "GitHub Page Insights Dashboard",
   platformType: "web-dashboard",
   environment: "production",
-  appVersion: "12.1.1",
-  autoRefreshMs: 300000,
-  healthRefreshMs: 600000,
-  requestTimeoutMs: 12000,
-  recentLimit: 60,
+  appVersion: "12.2.0",
+  apiVersion: "v1",
   defaultRangeDays: 7,
-  sessionTimeoutMs: 1800000,
-  advanced: false,
+  autoRefreshMs: 120000,
+  requestTimeoutMs: 12000,
+  recentLimit: 50,
   showRawIp: true,
   showPlatformIp: true
-};
+}, window.PAGE_INSIGHTS_CONFIG || {});

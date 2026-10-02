@@ -1,128 +1,586 @@
-(function(){
+(function () {
   "use strict";
 
-  const C=window.PAGE_INSIGHTS_CONFIG||{};
-  const WORKER=String(C.workerUrl||"").replace(/\/+$/g,"");
-  const $=id=>document.getElementById(id);
-  const state={days:String(C.defaultRangeDays||7),platform:"*",platforms:[],overview:null,detail:null,events:[],health:null,clientKind:"browser",advanced:false,loading:false,cache:loadCache(),lastPayloadSource:"none"};
-  const el={
-    livePill:$('livePill'),liveText:$('liveText'),refresh:$('refreshBtn'),platform:$('platformSelect'),search:$('platformSearch'),range:$('rangeSeg'),lastSync:$('lastSync'),overall:$('overallBadge'),healthMeta:$('healthMeta'),
-    heroViews:$('heroViews'),heroVisitors:$('heroVisitors'),heroSessions:$('heroSessions'),heroStatus:$('heroStatus'),platformBars:$('platformBars'),platformCount:$('platformCount'),traffic:$('trafficChart'),trafficInfo:$('trafficInfo'),
-    eventsBody:$('eventsBody'),eventCount:$('eventCount'),advanced:$('advancedSection'),countries:$('countries'),clientRank:$('clientRank'),ips:$('ips'),topPages:$('topPages'),sources:$('sources'),eventTypes:$('eventTypes'),statuses:$('statuses'),
-    drawer:$('eventDrawer'),backdrop:$('drawerBackdrop'),drawerTitle:$('drawerTitle'),drawerBody:$('drawerBody'),toasts:$('toasts'),footerVersion:$('footVersion')
+  const C = window.PAGE_INSIGHTS_CONFIG || {};
+  const W = String(C.workerUrl || "").replace(/\/+$/, "");
+  const VERSION = String(C.appVersion || "12.2.0");
+  const $ = (id) => document.getElementById(id);
+
+  const state = {
+    days: String(C.defaultRangeDays || 7),
+    platform: "*",
+    overview: null,
+    platforms: [],
+    loading: false,
+    stale: false,
+    clientKind: "browser",
+    codeKind: "curl",
+    theme: localStorage.getItem("uei-pages-theme") || "dark",
+    cacheKey: "uei_dashboard_cache_v122"
   };
 
-  const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const num=v=>new Intl.NumberFormat('en-US').format(Number(v)||0);
-  const n=v=>Number.isFinite(Number(v))?Number(v):0;
-  const pick=(o,...keys)=>{for(const k of keys){if(o&&o[k]!==undefined&&o[k]!==null)return o[k]}return null};
-  const arr=v=>Array.isArray(v)?v:[];
-  const date=v=>{const d=new Date(v);return Number.isNaN(d.getTime())?'—':d.toLocaleString('en-US',{month:'short',day:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})};
-  const ago=v=>{const t=new Date(v).getTime();if(!Number.isFinite(t))return'—';const s=Math.max(0,Math.floor((Date.now()-t)/1000));if(s<60)return `${s}s ago`;if(s<3600)return `${Math.floor(s/60)}m ago`;if(s<86400)return `${Math.floor(s/3600)}h ago`;return `${Math.floor(s/86400)}d ago`};
-  const duration=ms=>{const s=Math.max(0,Math.round(n(ms)/1000));if(s<60)return `${s}s`;const m=Math.floor(s/60);if(m<60)return `${m}m ${s%60}s`;return `${Math.floor(m/60)}h ${m%60}m`};
-  const parseJson=v=>{if(v==null||v==='')return{};if(typeof v!=='string')return v;try{return JSON.parse(v)}catch{return v}};
-  const pretty=v=>{try{return JSON.stringify(v,null,2)}catch{return String(v??'')}};
+  const el = {
+    connection: $("connectionPill"),
+    refresh: $("refreshBtn"),
+    theme: $("themeBtn"),
+    platform: $("platformSelect"),
+    search: $("platformSearch"),
+    healthBtn: $("healthBtn"),
+    connectBtn: $("connectBtn"),
+    workerVersion: $("workerVersion"),
+    lastSync: $("lastSync"),
+    metrics: $("metrics"),
+    healthTitle: $("healthTitle"),
+    overallBadge: $("overallBadge"),
+    healthMeta: $("healthMeta"),
+    healthWorker: $("healthWorker"),
+    healthWorkerText: $("healthWorkerText"),
+    healthData: $("healthData"),
+    healthDataText: $("healthDataText"),
+    healthArchive: $("healthArchive"),
+    healthArchiveText: $("healthArchiveText"),
+    healthTelegram: $("healthTelegram"),
+    healthTelegramText: $("healthTelegramText"),
+    rangeSeg: $("rangeSeg"),
+    trafficChart: $("trafficChart"),
+    trafficSummary: $("trafficSummary"),
+    platformBars: $("platformBars"),
+    platformCount: $("platformCount"),
+    clientTabs: $("clientTabs"),
+    clientRank: $("clientRank"),
+    countries: $("countries"),
+    ips: $("ips"),
+    eventCount: $("eventCount"),
+    eventsBody: $("eventsBody"),
+    topPages: $("topPages"),
+    eventTypes: $("eventTypes"),
+    sources: $("sources"),
+    statuses: $("statuses"),
+    drawer: $("eventDrawer"),
+    backdrop: $("drawerBackdrop"),
+    drawerTitle: $("drawerTitle"),
+    drawerBody: $("drawerBody"),
+    toasts: $("toasts"),
+    codeTabs: document.querySelectorAll(".code-tabs button"),
+    codeBlock: $("codeBlock"),
+    copyCodeBtn: $("copyCodeBtn"),
+    exportBtn: $("exportBtn")
+  };
 
-  function toast(message,kind='info'){if(!el.toasts)return;const x=document.createElement('div');x.className=`toast ${kind}`;x.textContent=message;el.toasts.appendChild(x);setTimeout(()=>x.remove(),4200)}
-  function setLive(kind,text){el.livePill?.classList.remove('ok','error');if(kind)el.livePill?.classList.add(kind);if(el.liveText)el.liveText.textContent=text}
-  function setText(id,value){const node=$(id);if(node)node.textContent=value}
-  function cacheKey(){return `${state.platform}|${state.days}`}
-  function loadCache(){try{return JSON.parse(localStorage.getItem('uei_dashboard_v121')||'{}')}catch{return{}}}
-  function saveCache(){try{localStorage.setItem('uei_dashboard_v121',JSON.stringify(state.cache))}catch{}}
-  function buildUrl(path,params){const q=new URLSearchParams(params||{});return `${WORKER}${path}${q.toString()?(path.includes('?')?'&':'?')+q.toString():''}`}
-
-  async function api(path,params={}){
-    if(!WORKER)throw Error('Worker URL is missing.');
-    const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),Math.max(4000,Number(C.requestTimeoutMs||12000)));
-    try{
-      const res=await fetch(buildUrl(path,params),{method:'GET',cache:'no-store',headers:{Accept:'application/json'},signal:controller.signal});
-      let body=null;try{body=await res.json()}catch{}
-      if(!res.ok)throw Error(`HTTP ${res.status}${body?.error?` — ${body.error}`:''}`);
-      return body||{};
-    }finally{clearTimeout(timer)}
+  const required = Object.entries(el).filter(([key, value]) => value == null && !["codeTabs"].includes(key));
+  if (required.length) {
+    console.error("GitHub Page Insights: missing required DOM nodes", required.map(([key]) => key));
+    return;
   }
 
-  function currentData(){if(state.platform==='*')return state.overview||{};return state.detail||{}}
-  function totals(d){const t=d?.totals||{};return{events:n(pick(t,'events')),views:n(pick(t,'pageviews','views')),visitors:n(pick(t,'uniqueVisitors','visitors')),sessions:n(pick(t,'sessions')),duration:n(pick(t,'avgDurationMs')),scroll:n(pick(t,'avgScroll'))}}
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+  const n = (v) => new Intl.NumberFormat("en-US").format(Number(v) || 0);
+  const num = (v) => Number.isFinite(Number(v)) ? Number(v) : 0;
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, num(v)));
+  const formatDuration = (ms) => {
+    const s = Math.max(0, Math.round(num(ms) / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  };
+  const formatDate = (v) => {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, {
+      month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+  };
+  const timeAgo = (v) => {
+    const d = new Date(v).getTime();
+    if (!Number.isFinite(d)) return "—";
+    const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  };
+  const apiPath = (base) => `${base}${base.includes("?") ? "&" : "?"}days=${encodeURIComponent(state.days)}`;
 
-  function populatePlatforms(filter=''){
-    if(!el.platform)return;const q=String(filter).trim().toLowerCase();const list=arr(state.platforms).filter(p=>!q||String(p.platformName||'').toLowerCase().includes(q)||String(p.platformId||'').toLowerCase().includes(q));
-    el.platform.innerHTML='';const all=document.createElement('option');all.value='*';all.textContent='All platforms';el.platform.appendChild(all);
-    list.forEach(p=>{const o=document.createElement('option');o.value=p.platformId;o.textContent=`${p.platformName||p.platformId} · ${p.platformId}`;el.platform.appendChild(o)});
-    el.platform.value=state.platform==='*'||list.some(p=>p.platformId===state.platform)?state.platform:'*';
-    if(el.platform.value!==state.platform&&state.platform!=='*')state.platform='*';
+  function toast(message, error = false) {
+    const item = document.createElement("div");
+    item.className = `toast ${error ? "error" : ""}`;
+    item.textContent = message;
+    el.toasts.appendChild(item);
+    setTimeout(() => item.remove(), 4200);
   }
 
-  function renderKpis(d){
-    const t=totals(d);const pc=state.platform==='*'?state.platforms.length:1;
-    setText('k-platforms',num(pc));setText('k-platforms-sub',state.platform==='*'?'Discovered automatically':(d.platform?.platformName||state.platform));setText('k-pageviews',num(t.views));setText('k-visitors',num(t.visitors));setText('k-sessions',num(t.sessions));setText('k-events',num(t.events));setText('k-duration',duration(t.duration));setText('k-scroll',`${Math.round(t.scroll)}%`);
-    const latest=arr(d.recentEvents)[0];setText('k-last',latest?ago(latest.receivedAt):'—');setText('k-last-sub',latest?`${latest.eventType||'event'} · ${latest.platformName||latest.platformId||''}`:'Waiting for telemetry');
-    if(el.heroViews)el.heroViews.textContent=num(t.views);if(el.heroVisitors)el.heroVisitors.textContent=`${num(t.visitors)} visitors`;if(el.heroSessions)el.heroSessions.textContent=`${num(t.sessions)} sessions`;
-    if(el.heroStatus)el.heroStatus.textContent=state.lastPayloadSource==='cache'?'Showing last good snapshot':'Live telemetry loaded';
+  function setStatus(kind, label) {
+    el.connection.className = `status-pill ${kind}`;
+    const target = el.connection.querySelector("span");
+    if (target) target.textContent = label;
   }
 
-  function renderHealth(h){
-    state.health=h||{};const overall=String(h?.overall||'unknown').toLowerCase();if(el.overall){el.overall.textContent=overall.toUpperCase();el.overall.className=`status-badge ${overall}`}
-    const checks=h?.checks||{};
-    const healthCard=(id,status,title,detail)=>{const x=$(id);if(!x)return;x.className=`health-card ${status||'unknown'}`;x.innerHTML=`<span>${title==='Worker'?'⚙️':title==='D1'?'🗄️':title==='GitHub'?'📦':'🤖'}</span><b>${esc(title)}</b><strong>${esc(String(status||'unknown').toUpperCase())}</strong><small>${esc(detail||'')}</small>`};
-    healthCard('h-worker',checks.worker?.status||'unknown','Worker',checks.worker?.version||'Runtime');healthCard('h-d1',checks.database?.status||'unknown','D1',checks.database?.message||'Database');healthCard('h-gh',checks.github?.status||'unknown','GitHub',checks.github?.message||'Archive');
-    const tg=checks.configuration?.telegramConfigured?'ok':(checks.configuration?.telegramEnabled?'warning':'warning');healthCard('h-tg',tg,'Telegram',checks.configuration?.telegramConfigured?'Configured':'Not configured');
-    const counts=checks.database?.counts||{};if(el.healthMeta)el.healthMeta.textContent=`${date(h?.generatedAt)} · ${num(counts.events||0)} events · ${num(counts.platforms||0)} platforms`;
-    if(el.footerVersion)el.footerVersion.textContent=String(h?.version||C.appVersion||'—');
+  async function request(path, options = {}) {
+    if (!W) throw new Error("Worker URL is not configured.");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Number(C.requestTimeoutMs || 12000));
+    try {
+      const response = await fetch(W + path, {
+        cache: "no-store",
+        credentials: "omit",
+        signal: controller.signal,
+        ...options
+      });
+      let body = null;
+      try { body = await response.json(); } catch (_) {}
+      if (!response.ok) {
+        const reason = body?.error || body?.message || `HTTP ${response.status}`;
+        const error = new Error(reason);
+        error.status = response.status;
+        error.body = body;
+        throw error;
+      }
+      return body;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
-  function renderTraffic(rows){
-    if(!el.traffic)return;const list=arr(rows);if(!list.length){el.traffic.innerHTML='<div class="empty">No activity in this range.</div>';setText('trafficInfo','0 events');return}
-    const width=1100,height=300,pad={l:42,r:16,t:22,b:32},vals=list.map(r=>n(pick(r,'events','pageviews','views'))),max=Math.max(1,...vals),x=i=>pad.l+(list.length===1?(width-pad.l-pad.r)/2:i*(width-pad.l-pad.r)/(list.length-1)),y=v=>height-pad.b-(v/max)*(height-pad.t-pad.b);
-    const ns='http://www.w3.org/2000/svg';const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.setAttribute('role','img');svg.setAttribute('aria-label','Activity trend');
-    const defs=document.createElementNS(ns,'defs'),grad=document.createElementNS(ns,'linearGradient');grad.id='trafficGradient';grad.setAttribute('x1','0');grad.setAttribute('x2','0');grad.setAttribute('y1','0');grad.setAttribute('y2','1');const a=document.createElementNS(ns,'stop');a.setAttribute('offset','0%');a.setAttribute('stop-color','rgba(116,231,255,.22)');const b=document.createElementNS(ns,'stop');b.setAttribute('offset','100%');b.setAttribute('stop-color','rgba(116,231,255,0)');grad.append(a,b);defs.appendChild(grad);svg.appendChild(defs);
-    for(let i=0;i<4;i++){const yy=pad.t+i*(height-pad.t-pad.b)/3;const line=document.createElementNS(ns,'line');line.setAttribute('x1',pad.l);line.setAttribute('x2',width-pad.r);line.setAttribute('y1',yy);line.setAttribute('y2',yy);line.setAttribute('class','chart-grid');svg.appendChild(line)}
-    let path='';list.forEach((r,i)=>{path+=`${i?'L':'M'} ${x(i)} ${y(vals[i])}`});const area=document.createElementNS(ns,'path');area.setAttribute('d',`${path} L ${x(list.length-1)} ${height-pad.b} L ${x(0)} ${height-pad.b} Z`);area.setAttribute('class','chart-area');svg.appendChild(area);const line=document.createElementNS(ns,'path');line.setAttribute('d',path);line.setAttribute('class','chart-line');svg.appendChild(line);
-    list.forEach((r,i)=>{if(i===0||i===list.length-1||i%Math.max(1,Math.ceil(list.length/8))===0){const c=document.createElementNS(ns,'circle');c.setAttribute('cx',x(i));c.setAttribute('cy',y(vals[i]));c.setAttribute('r',5);c.setAttribute('class','chart-dot');c.addEventListener('mouseenter',()=>{setText('trafficInfo',`${r.day||'day'} · ${num(vals[i])} events`)});svg.appendChild(c)}});
-    el.traffic.innerHTML='';el.traffic.appendChild(svg);setText('trafficInfo',`${num(vals.reduce((a,v)=>a+v,0))} events`);
+  function saveCache(data) {
+    try {
+      localStorage.setItem(state.cacheKey, JSON.stringify({ savedAt: Date.now(), data }));
+    } catch (_) {}
   }
 
-  function renderPlatforms(rows){
-    if(!el.platformBars)return;const list=arr(rows);setText('platformCount',`${num(list.length)} found`);if(!list.length){el.platformBars.innerHTML='<div class="empty compact">No connected platforms yet.</div>';return}
-    const max=Math.max(1,...list.map(r=>n(r.totalEvents)));el.platformBars.innerHTML=list.slice(0,18).map(r=>`<div class="platform-row" data-platform="${esc(r.platformId||'')}"><div class="platform-name"><strong>${esc(r.platformName||r.platformId||'Unknown')}</strong><small>${esc(r.platformId||'')} · ${esc(r.platformType||'generic')}</small></div><div class="platform-track"><div class="platform-fill" style="width:${Math.max(3,Math.round(n(r.totalEvents)/max*100))}%"></div></div><div class="platform-value">${num(pick(r,'totalPageviews','totalEvents')||0)}</div></div>`).join('');
-    el.platformBars.querySelectorAll('[data-platform]').forEach(node=>node.addEventListener('click',async()=>{state.platform=node.dataset.platform;await loadData(true)}));
+  function loadCache() {
+    try {
+      const raw = localStorage.getItem(state.cacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed?.data || null;
+    } catch (_) {
+      return null;
+    }
   }
 
-  function rankRows(target,rows,labelKeys,valueKeys,secondaryKeys=[]){if(!target)return;const list=arr(rows).slice(0,15);if(!list.length){target.innerHTML='<div class="empty compact">No data available for this range.</div>';return}target.innerHTML=list.map((r,i)=>{const label=pick(r,...labelKeys)||'Unknown';const value=n(pick(r,...valueKeys));const secondary=secondaryKeys.map(k=>pick(r,k)).filter(v=>v!==undefined&&v!==null&&v!=='').join(' · ');return `<div class="rank-row"><div class="rank-no">${i+1}</div><div class="rank-main"><strong>${esc(label)}</strong>${secondary?`<small>${esc(secondary)}</small>`:''}</div><div class="rank-value">${num(value)}</div></div>`}).join('')}
-  function mapToRows(data){if(data instanceof Map)return Array.from(data.entries()).map(([label,count])=>({label,count}));return arr(data)}
-  function renderCards(target,items,labelKey='label',valueKey='count'){if(!target)return;const list=items instanceof Map?Array.from(items.entries()).map(([label,count])=>({label,count})):arr(items);if(!list.length){target.innerHTML='<div class="empty compact">No data available.</div>';return}target.innerHTML=list.slice(0,12).map(x=>`<div class="event-card"><b>${esc(pick(x,labelKey,'eventType','status','name')||'Unknown')}</b><span>${num(pick(x,valueKey,'events','count')||0)}</span></div>`).join('')}
-  function deriveCounts(events,keyFn){const m=new Map();arr(events).forEach(e=>{const k=String(keyFn(e)||'Unknown');m.set(k,(m.get(k)||0)+1)});return m}
-  function deriveSources(events){return mapToRows(deriveCounts(events,e=>e.referrerHost||e.utmSource||'Direct'))}
-  function renderAdvanced(d){
-    rankRows(el.countries,d.countries||[],['label','country'],['count','events']);
-    const client=state.clientKind==='browser'?d.browsers:state.clientKind==='os'?d.operatingSystems:d.devices;const labelKeys=state.clientKind==='browser'?['browser']:state.clientKind==='os'?['os']:['device'];rankRows(el.clientRank,client||[],labelKeys,['count','events']);
-    rankRows(el.ips,d.ips||[],['ip'],['count','events'],['city','country']);rankRows(el.topPages,d.topPages||[],['title','path'],['views','count'],['path']);rankRows(el.sources,(arr(d.sources).length?d.sources:deriveSources(state.events)),['label','referrerHost','utmSource'],['count','events']);
-    renderCards(el.eventTypes,d.eventTypes?.length?d.eventTypes:deriveCounts(state.events,e=>e.eventType||'custom'));renderCards(el.statuses,d.statuses?.length?d.statuses:deriveCounts(state.events,e=>String(e.responseStatus||'200')), 'status');
+  function applyTheme() {
+    document.documentElement.dataset.theme = state.theme;
+    try { localStorage.setItem("uei-pages-theme", state.theme); } catch (_) {}
   }
 
-  function renderEvents(rows){const list=arr(rows).slice(0,Number(C.recentLimit||60));state.events=list;setText('eventCount',num(list.length));if(!el.eventsBody)return;if(!list.length){el.eventsBody.innerHTML='<tr><td colspan="7"><div class="empty">No events found.</div></td></tr>';return}el.eventsBody.innerHTML=list.map((r,i)=>`<tr data-event-index="${i}"><td title="${esc(date(r.receivedAt))}">${esc(ago(r.receivedAt))}</td><td><strong>${esc(r.platformName||r.platformId||'—')}</strong></td><td><span class="pill-type">${esc(r.eventType||'custom')}</span></td><td class="ip-text">${esc(r.ip||'—')}</td><td>${esc([r.city,r.region,r.country].filter(Boolean).join(' · ')||'—')}</td><td>${esc([r.device,r.os].filter(Boolean).join(' · ')||'—')}</td><td class="page-text" title="${esc(r.pageUrl||r.path||'')}">${esc(r.path||r.title||r.pageUrl||'—')}</td></tr>`).join('');el.eventsBody.querySelectorAll('[data-event-index]').forEach(row=>row.addEventListener('click',()=>openEvent(list[Number(row.dataset.eventIndex)])))}
-
-  function renderAll(){const d=currentData();renderKpis(d);renderTraffic(d.daily||[]);renderPlatforms(state.platform==='*'?(d.platforms||state.platforms):state.platforms.filter(p=>p.platformId===state.platform));renderEvents(d.recentEvents||[]);if(state.advanced)renderAdvanced(d);setLive(state.lastPayloadSource==='cache'?'error':'ok',state.lastPayloadSource==='cache'?'Cached':'Live');setText('lastSync',`Updated ${new Date().toLocaleTimeString()}`);}
-
-  async function loadGlobal(){const key=cacheKey();const [platforms,overview,health]=await Promise.allSettled([api('/v1/platforms'),api('/v1/overview',{days:state.days,lite:state.advanced?undefined:1}),api('/v1/health',{quick:1})]);if(platforms.status==='fulfilled')state.platforms=arr(platforms.value?.platforms);if(health.status==='fulfilled')renderHealth(health.value);
-    if(overview.status==='fulfilled'){state.overview=overview.value;state.lastPayloadSource='live';state.cache[key]={overview:state.overview,platforms:state.platforms};saveCache()}else{const c=state.cache[key];if(!c?.overview)throw overview.reason||Error('Overview is unavailable.');state.overview=c.overview;state.platforms=arr(c.platforms||state.platforms);state.lastPayloadSource='cache';toast(`Live overview unavailable. Showing the last good snapshot. ${overview.reason?.message||''}`.trim(),'error')}
-    populatePlatforms(el.search?.value||'');renderAll();
+  function normalizeOverview(data) {
+    const source = data && typeof data === "object" ? data : {};
+    source.totals = source.totals || {};
+    source.daily = Array.isArray(source.daily) ? source.daily : [];
+    source.countries = Array.isArray(source.countries) ? source.countries : [];
+    source.browsers = Array.isArray(source.browsers) ? source.browsers : [];
+    source.operatingSystems = Array.isArray(source.operatingSystems) ? source.operatingSystems : [];
+    source.devices = Array.isArray(source.devices) ? source.devices : [];
+    source.ips = Array.isArray(source.ips) ? source.ips : [];
+    source.platforms = Array.isArray(source.platforms) ? source.platforms : [];
+    source.recentEvents = Array.isArray(source.recentEvents) ? source.recentEvents : [];
+    return source;
   }
-  async function loadPlatform(){const key=cacheKey();try{const detail=await api(`/v1/platforms/${encodeURIComponent(state.platform)}`,{days:state.days,lite:state.advanced?undefined:1});if(!detail||detail.ok===false)throw Error('Platform not found.');state.detail=detail;state.lastPayloadSource='live';state.cache[key]={detail:state.detail,platforms:state.platforms};saveCache();populatePlatforms(el.search?.value||'');renderAll()}catch(error){const c=state.cache[key];if(!c?.detail)throw error;state.detail=c.detail;state.lastPayloadSource='cache';populatePlatforms(el.search?.value||'');renderAll();toast(`Platform refresh failed. Showing the last good snapshot. ${error.message}`,'error')}}
-  async function loadData(manual=false){if(state.loading)return;state.loading=true;if(manual)setLive(null,'Refreshing');try{await(state.platform==='*'?loadGlobal():loadPlatform())}catch(error){setLive('error','Offline');toast(`Unable to load analytics: ${error.message}`,'error')}finally{state.loading=false}}
 
-  async function openAdvanced(){if(!el.advanced||state.advanced)return;state.advanced=true;el.advanced.classList.remove('hidden');setLive(null,'Loading advanced');try{if(state.platform==='*'){const full=await api('/v1/overview',{days:state.days});state.overview={...(state.overview||{}),...full}}else{state.detail=await api(`/v1/platforms/${encodeURIComponent(state.platform)}`,{days:state.days})}state.lastPayloadSource='live';state.cache[cacheKey()]={...(state.cache[cacheKey()]||{}),overview:state.overview,detail:state.detail,platforms:state.platforms};saveCache();renderAll();toast('Advanced analytics loaded.','success')}catch(error){renderAdvanced(currentData());toast(`Advanced analytics unavailable: ${error.message}`,'error')}el.advanced.scrollIntoView({behavior:'smooth',block:'start'})}
-  function closeAdvanced(){state.advanced=false;el.advanced?.classList.add('hidden')}
-  function openEvent(event){if(!event||!el.drawer)return;el.drawerTitle.textContent=event.eventId||event.eventType||'Event';const pairs=[['Event ID',event.eventId],['Type',event.eventType],['Platform',event.platformName||event.platformId],['Received',date(event.receivedAt)],['IP',event.ip],['IP hash',event.ipHash],['Country',event.country],['Region',event.region],['City',event.city],['Latitude',event.latitude],['Longitude',event.longitude],['ASN',event.asn],['Organization',event.asOrganization],['Timezone',event.timezone],['Browser',[event.browser,event.browserVersion].filter(Boolean).join(' ')],['OS',[event.os,event.osVersion].filter(Boolean).join(' ')],['Device',[event.device,event.deviceModel].filter(Boolean).join(' ')],['Screen',event.screenWidth&&event.screenHeight?`${event.screenWidth} × ${event.screenHeight}`:'—'],['Viewport',event.viewportWidth&&event.viewportHeight?`${event.viewportWidth} × ${event.viewportHeight}`:'—'],['Page',event.pageUrl||event.path],['Referrer',event.referrer||event.referrerHost],['Duration',duration(event.durationMs)],['Scroll',`${n(event.maxScroll)}%`],['Clicks',event.clicks],['Outbound clicks',event.outboundClicks],['Request ID',event.requestId],['CF-Ray',event.cfRay]];const item=(label,value)=>`<div class="detail-item"><span>${esc(label)}</span><b>${esc(value??'—')}</b></div>`;const box=(label,value)=>`<div class="json-box"><header>${esc(label)}</header><pre>${esc(pretty(value))}</pre></div>`;el.drawerBody.innerHTML=`<div class="detail-grid">${pairs.map(p=>item(...p)).join('')}</div>${box('data_json',parseJson(event.dataJson))}${box('metadata_json',parseJson(event.metadataJson))}${box('request_json',parseJson(event.requestJson))}${box('cf_json',parseJson(event.cfJson))}`;el.drawer.classList.add('open');el.backdrop?.classList.add('open');el.drawer.setAttribute('aria-hidden','false')}
-  function closeDrawer(){el.drawer?.classList.remove('open');el.backdrop?.classList.remove('open');el.drawer?.setAttribute('aria-hidden','true')}
-  function exportCsv(){const rows=state.events;if(!rows.length){toast('There are no events to export.','error');return}const cols=['receivedAt','eventId','platformId','eventType','ip','country','region','city','asn','browser','os','device','path','referrer','durationMs','maxScroll'];const csv=[cols.join(','),...rows.map(r=>cols.map(k=>`"${String(r?.[k]??'').replace(/"/g,'""')}"`).join(','))].join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`uei-events-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200)}
-
-  function bind(){
-    el.refresh?.addEventListener('click',()=>loadData(true));el.platform?.addEventListener('change',()=>{state.platform=el.platform.value;state.detail=null;loadData(true)});el.search?.addEventListener('input',()=>populatePlatforms(el.search.value));
-    el.range?.querySelectorAll('button').forEach(btn=>btn.addEventListener('click',()=>{el.range.querySelectorAll('button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.days=btn.dataset.days;loadData(true)}));
-    document.querySelectorAll('#clientTabs button').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('#clientTabs button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');state.clientKind=btn.dataset.kind;renderAdvanced(currentData())}));
-    $('advancedBtn')?.addEventListener('click',()=>state.advanced?closeAdvanced():openAdvanced());$('advancedCloseBtn')?.addEventListener('click',closeAdvanced);$('exportBtn')?.addEventListener('click',exportCsv);$('closeDrawer')?.addEventListener('click',closeDrawer);el.backdrop?.addEventListener('click',closeDrawer);document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
+  function setMetric(icon, label, value, note, tone = "blue") {
+    return `<article class="metric-card ${tone}"><div class="metric-top"><span class="metric-icon">${icon}</span><span class="metric-label">${esc(label)}</span></div><strong class="metric-value">${esc(value)}</strong><span class="metric-note">${esc(note || "")}</span></article>`;
   }
-  async function init(){bind();setLive(null,'Connecting');await loadData(false);setInterval(()=>{if(!document.hidden)loadData(false)},Math.max(180000,Number(C.autoRefreshMs||300000)));setInterval(()=>{if(!document.hidden)api('/v1/health',{quick:1}).then(renderHealth).catch(()=>{})},Math.max(300000,Number(C.healthRefreshMs||600000)))}
-  init().catch(error=>{setLive('error','Offline');toast(`Dashboard startup failed: ${error.message}`,'error')});
+
+  function renderMetrics(data) {
+    const t = data.totals || {};
+    const last = data.recentEvents?.[0];
+    el.metrics.innerHTML = [
+      setMetric("👁️", "Pageviews", n(t.pageviews ?? t.views), `${state.days === "all" ? "All available time" : `Last ${state.days} day${state.days === "1" ? "" : "s"}`}`, "blue"),
+      setMetric("👤", "Unique visitors", n(t.uniqueVisitors), "Distinct visitor IDs", "violet"),
+      setMetric("🧭", "Sessions", n(t.sessions), "Distinct sessions", "pink"),
+      setMetric("📦", "Total events", n(t.events), "All event types", "cyan"),
+      setMetric("⏱️", "Avg duration", formatDuration(t.avgDurationMs), "Collected duration", "green"),
+      setMetric("📜", "Avg scroll", `${Math.round(num(t.avgScroll))}%`, "From recorded events", "amber"),
+      setMetric("🧩", "Platforms", n(state.platform === "*" ? data.platforms.length : 1), state.platform === "*" ? "Discovered from D1" : state.platform, "indigo"),
+      setMetric("🕒", "Last activity", last ? timeAgo(last.receivedAt) : "—", last ? `${last.platformName || last.platformId} · ${last.eventType || "event"}` : "No event yet", "slate")
+    ].join("");
+  }
+
+  function populatePlatforms(filter = "") {
+    const q = filter.trim().toLowerCase();
+    const rows = state.platforms.filter((p) => {
+      const id = String(p.platformId || "").toLowerCase();
+      const name = String(p.platformName || "").toLowerCase();
+      return !q || id.includes(q) || name.includes(q);
+    });
+    el.platform.innerHTML = `<option value="*">All platforms · ${state.platforms.length}</option>`;
+    for (const p of rows) {
+      const option = document.createElement("option");
+      option.value = p.platformId;
+      option.textContent = `${p.platformName || p.platformId} · ${p.platformId}`;
+      el.platform.appendChild(option);
+    }
+    el.platform.value = state.platforms.some((p) => p.platformId === state.platform) ? state.platform : "*";
+  }
+
+  function currentRows(data, key) {
+    return Array.isArray(data?.[key]) ? data[key] : [];
+  }
+
+  function renderTraffic(rows) {
+    const data = Array.isArray(rows) ? rows : [];
+    if (!data.length) {
+      el.trafficChart.innerHTML = `<div class="empty-state"><span>📈</span><strong>No traffic points for this range</strong><small>There may be no pageviews in the selected period yet.</small></div>`;
+      el.trafficSummary.textContent = "0 events";
+      return;
+    }
+    const width = 960, height = 300, left = 48, right = 18, top = 22, bottom = 46;
+    const max = Math.max(1, ...data.map((r) => num(r.events ?? r.pageviews ?? r.views)));
+    const x = (i) => data.length === 1 ? width / 2 : left + i * (width - left - right) / (data.length - 1);
+    const y = (v) => height - bottom - num(v) / max * (height - top - bottom);
+    const points = data.map((r, i) => `${x(i)},${y(r.events ?? r.pageviews ?? r.views)}`).join(" ");
+    const area = `${points} ${x(data.length - 1)},${height - bottom} ${x(0)},${height - bottom}`;
+    const grid = [0, 1, 2, 3].map((i) => {
+      const yy = top + i * (height - top - bottom) / 3;
+      const value = Math.round(max * (1 - i / 3));
+      return `<line x1="${left}" x2="${width - right}" y1="${yy}" y2="${yy}"/><text x="${left - 10}" y="${yy + 4}" text-anchor="end">${n(value)}</text>`;
+    }).join("");
+    const labels = data.map((r, i) => {
+      if (!(i % Math.max(1, Math.ceil(data.length / 8)) === 0 || i === data.length - 1)) return "";
+      const raw = String(r.day || "");
+      return `<text class="chart-x" x="${x(i)}" y="${height - 12}" text-anchor="middle">${esc(raw.slice(5) || raw.slice(0, 10))}</text>`;
+    }).join("");
+    const dots = data.map((r, i) => `<circle class="chart-dot" cx="${x(i)}" cy="${y(r.events ?? r.pageviews ?? r.views)}" r="4"><title>${esc(r.day || "")} · ${n(r.events ?? r.pageviews ?? r.views)} events</title></circle>`).join("");
+    el.trafficChart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-label="Traffic chart"><g class="chart-grid">${grid}</g><polygon class="chart-area" points="${area}"/><polyline class="chart-line" points="${points}"/>${dots}${labels}</svg>`;
+    const total = data.reduce((sum, r) => sum + num(r.events ?? r.pageviews ?? r.views), 0);
+    el.trafficSummary.textContent = `${n(total)} events`;
+  }
+
+  function renderPlatformBars(rows) {
+    const list = (rows || []).slice().sort((a, b) => num(b.totalEvents) - num(a.totalEvents)).slice(0, 10);
+    el.platformCount.textContent = n((rows || []).length);
+    if (!list.length) {
+      el.platformBars.innerHTML = `<div class="empty-state compact"><span>🧩</span><strong>No platforms yet</strong><small>Send the first event with a stable platformId.</small></div>`;
+      return;
+    }
+    const max = Math.max(1, ...list.map((r) => num(r.totalEvents)));
+    el.platformBars.innerHTML = list.map((r) => `<div class="bar-row"><div class="bar-head"><strong>${esc(r.platformName || r.platformId)}</strong><span>${n(r.totalEvents)} events</span></div><div class="bar-track"><span style="width:${Math.max(3, Math.round(num(r.totalEvents) / max * 100))}%"></span></div><div class="bar-meta"><span>${esc(r.platformId || "")}</span><span>${n(r.totalPageviews)} views</span></div></div>`).join("");
+  }
+
+  function rankRows(rows, labelFn, countFn, extraFn) {
+    if (!rows.length) return `<div class="empty-state compact"><span>📭</span><strong>No data</strong><small>No records were returned for this range.</small></div>`;
+    return rows.slice(0, 10).map((r, i) => `<div class="rank-row"><span class="rank-no">${i + 1}</span><div class="rank-main"><strong>${esc(labelFn(r))}</strong>${extraFn ? `<small>${esc(extraFn(r))}</small>` : ""}</div><strong class="rank-value">${n(countFn(r))}</strong></div>`).join("");
+  }
+
+  function renderClient() {
+    const map = {
+      browser: ["browsers", (r) => r.browser || "Unknown"],
+      os: ["operatingSystems", (r) => r.os || "Unknown"],
+      device: ["devices", (r) => r.device || "Unknown"]
+    };
+    const [key, labelFn] = map[state.clientKind];
+    const rows = currentRows(state.overview, key);
+    el.clientRank.innerHTML = rankRows(rows, labelFn, (r) => r.count);
+  }
+
+  function renderCountries(rows) {
+    el.countries.innerHTML = rankRows(rows, (r) => r.label || "Unknown", (r) => r.count, (r) => r.label === "Unknown" ? "IP geolocation unavailable" : "IP geolocation");
+  }
+
+  function renderIps(rows) {
+    el.ips.innerHTML = rankRows(rows, (r) => r.ip || "Unknown", (r) => r.count, (r) => [r.city, r.country, r.browser, r.os].filter(Boolean).join(" · ") || "No enrichment data");
+  }
+
+  function renderEvents(rows) {
+    const data = (rows || []).slice(0, Number(C.recentLimit || 50));
+    el.eventCount.textContent = n(data.length);
+    if (!data.length) {
+      el.eventsBody.innerHTML = `<tr><td colspan="7"><div class="table-empty">📭 No events returned for the selected range.</div></td></tr>`;
+      return;
+    }
+    el.eventsBody.innerHTML = data.map((r, i) => `<tr data-index="${i}" tabindex="0" title="Open event details"><td><strong>${esc(timeAgo(r.receivedAt))}</strong><small>${esc(formatDate(r.receivedAt))}</small></td><td><span class="event-pill">${esc(r.eventType || "custom")}</span><small>${esc(r.platformName || r.platformId || "—")}</small></td><td><code>${C.showRawIp ? esc(r.ip || "—") : "hidden"}</code></td><td>${esc([r.city, r.region, r.country].filter(Boolean).join(" · ") || "—")}</td><td>${esc([r.device, r.deviceModel].filter(Boolean).join(" · ") || "—")}</td><td>${esc([r.browser, r.os].filter(Boolean).join(" · ") || "—")}</td><td class="page-cell"><strong>${esc(r.title || r.path || "—")}</strong><small>${esc(r.path || r.pageUrl || "")}</small></td></tr>`).join("");
+    el.eventsBody.querySelectorAll("tr[data-index]").forEach((row) => {
+      const open = () => openEvent(data[Number(row.dataset.index)]);
+      row.addEventListener("click", open);
+      row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+    });
+  }
+
+  function renderTopPages(rows) {
+    const list = (rows || []).slice(0, 10);
+    el.topPages.innerHTML = rankRows(list, (r) => r.title || r.path || "Unknown", (r) => r.views, (r) => r.path || "");
+  }
+
+  function renderEventTypes(events) {
+    const map = new Map();
+    for (const e of events || []) {
+      const key = e.eventType || "custom";
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    const list = [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+    el.eventTypes.innerHTML = list.length ? list.map(([type, count]) => `<div class="event-type-card"><span>${esc(type)}</span><strong>${n(count)}</strong></div>`).join("") : `<div class="empty-state compact"><span>🧾</span><strong>No event types</strong><small>Recent events are empty.</small></div>`;
+  }
+
+  function renderSources(events) {
+    const map = new Map();
+    for (const e of events || []) {
+      const key = e.referrerHost || e.utmSource || "direct";
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    const list = [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([label, count]) => ({ label, count }));
+    el.sources.innerHTML = rankRows(list, (r) => r.label, (r) => r.count);
+  }
+
+  function renderStatuses(events) {
+    const map = new Map();
+    for (const e of events || []) {
+      const key = e.responseStatus ? String(e.responseStatus) : "N/A";
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    const list = [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+    el.statuses.innerHTML = list.length ? list.map(([status, count]) => `<div class="event-type-card"><span>HTTP ${esc(status)}</span><strong>${n(count)}</strong></div>`).join("") : `<div class="empty-state compact"><span>🟢</span><strong>No status data</strong><small>HTTP status was not included in recent events.</small></div>`;
+  }
+
+  function renderAll() {
+    if (!state.overview) return;
+    const data = normalizeOverview(state.overview);
+    renderMetrics(data);
+    renderTraffic(data.daily);
+    renderPlatformBars(data.platforms);
+    renderClient();
+    renderCountries(data.countries);
+    renderIps(data.ips);
+    renderEvents(data.recentEvents);
+    renderTopPages(data.topPages);
+    renderEventTypes(data.recentEvents);
+    renderSources(data.recentEvents);
+    renderStatuses(data.recentEvents);
+  }
+
+  function setHealthCard(node, textNode, status, text) {
+    node.className = `health-card ${status || "pending"}`;
+    textNode.textContent = text || "Not checked";
+  }
+
+  function applyBasicHealth(message, good = true) {
+    el.healthTitle.textContent = good ? "Dashboard data is available" : "Worker could not be reached";
+    el.healthMeta.textContent = message;
+    el.overallBadge.className = `badge ${good ? "badge-success" : "badge-danger"}`;
+    el.overallBadge.textContent = good ? "ONLINE" : "OFFLINE";
+    setHealthCard(el.healthWorker, el.healthWorkerText, good ? "ok" : "error", good ? `API reachable · v${VERSION}` : "Worker request failed");
+    setHealthCard(el.healthData, el.healthDataText, state.overview ? "ok" : "pending", state.overview ? `${n(state.overview.totals?.events)} events loaded` : "No dashboard data");
+    setHealthCard(el.healthArchive, el.healthArchiveText, "pending", "Run Health Check");
+    setHealthCard(el.healthTelegram, el.healthTelegramText, "pending", "Run Health Check");
+  }
+
+  function renderFullHealth(h) {
+    const checks = h?.checks || {};
+    const overall = String(h?.overall || "unknown");
+    el.healthTitle.textContent = overall === "healthy" ? "All monitored services are healthy" : overall === "degraded" ? "Service is online with warnings" : "One or more checks failed";
+    el.healthMeta.textContent = `${h?.generatedAt ? formatDate(h.generatedAt) : "—"} · ${checks.database?.counts?.events ?? 0} events · ${checks.database?.counts?.platforms ?? 0} platforms`;
+    el.overallBadge.className = `badge ${overall === "healthy" ? "badge-success" : overall === "degraded" ? "badge-warning" : "badge-danger"}`;
+    el.overallBadge.textContent = overall.toUpperCase();
+    const w = checks.worker;
+    const d = checks.database;
+    const g = checks.github;
+    const t = checks.configuration;
+    setHealthCard(el.healthWorker, el.healthWorkerText, w?.status === "ok" ? "ok" : "error", w?.version ? `Worker v${w.version}` : w?.status || "Unknown");
+    setHealthCard(el.healthData, el.healthDataText, d?.status === "ok" ? "ok" : d?.status === "warning" ? "warning" : "error", d?.counts ? `${n(d.counts.events)} events · ${n(d.counts.visitors)} visitors` : d?.status || "Unknown");
+    setHealthCard(el.healthArchive, el.healthArchiveText, g?.status === "ok" ? "ok" : g?.status === "warning" ? "warning" : "error", g?.message || g?.status || "Unknown");
+    setHealthCard(el.healthTelegram, el.healthTelegramText, t?.telegramConfigured ? "ok" : "warning", t?.telegramConfigured ? "Configured" : "Not configured");
+    el.workerVersion.textContent = w?.version ? `v${w.version}` : "—";
+  }
+
+  async function checkHealth() {
+    setStatus("pending", "Checking health…");
+    try {
+      const health = await request("/v1/health?probe=github");
+      renderFullHealth(health);
+      setStatus(health.ok ? "ok" : "error", health.ok ? "Online" : "Issues detected");
+    } catch (error) {
+      applyBasicHealth(`Health request failed: ${error.message}`, false);
+      setStatus("error", "Offline");
+      toast(`Health check failed: ${error.message}`, true);
+    }
+  }
+
+  async function refresh() {
+    if (state.loading) return;
+    state.loading = true;
+    setStatus("pending", "Loading…");
+    try {
+      let data;
+      if (state.platform === "*") {
+        data = await request(apiPath("/v1/overview"));
+      } else {
+        data = await request(apiPath(`/v1/platforms/${encodeURIComponent(state.platform)}`));
+      }
+      state.overview = normalizeOverview(data);
+      if (state.platform === "*") state.platforms = state.overview.platforms;
+      saveCache(state.overview);
+      state.stale = false;
+      renderAll();
+      applyBasicHealth(`Loaded ${n(state.overview.totals?.events)} events from the Worker.`, true);
+      el.lastSync.textContent = new Date().toLocaleTimeString();
+      el.workerVersion.textContent = `Pages ${VERSION}`;
+      setStatus("ok", "Live");
+      if (state.platform === "*") populatePlatforms(el.search.value);
+    } catch (error) {
+      const cached = loadCache();
+      if (cached) {
+        state.overview = normalizeOverview(cached);
+        state.platforms = state.overview.platforms;
+        state.stale = true;
+        renderAll();
+        populatePlatforms(el.search.value);
+        applyBasicHealth(`Worker unavailable. Showing the last successful snapshot from ${formatDate(new Date(JSON.parse(localStorage.getItem(state.cacheKey) || "{}")?.savedAt))}.`, false);
+        el.overallBadge.textContent = "STALE";
+        el.overallBadge.className = "badge badge-warning";
+        setStatus("error", "Offline · cached data");
+        toast(`Worker unavailable: ${error.message}. Cached data is shown.`, true);
+      } else {
+        state.overview = null;
+        state.platforms = [];
+        el.metrics.innerHTML = `<div class="global-empty"><span>⚠️</span><div><strong>Could not load analytics</strong><p>${esc(error.message)}</p><button class="btn primary" id="retryInline">Retry</button></div></div>`;
+        [el.trafficChart, el.platformBars, el.clientRank, el.countries, el.ips, el.topPages, el.eventTypes, el.sources, el.statuses].forEach((node) => { node.innerHTML = `<div class="empty-state compact"><span>⚠️</span><strong>Unavailable</strong><small>Worker data could not be loaded.</small></div>`; });
+        $("retryInline")?.addEventListener("click", refresh);
+        applyBasicHealth(`Worker unavailable: ${error.message}`, false);
+        setStatus("error", "Offline");
+      }
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  async function selectPlatform() {
+    await refresh();
+  }
+
+  function detailRows(event) {
+    const pairs = [
+      ["Event ID", event.eventId || event.id],
+      ["Event type", event.eventType],
+      ["Platform", event.platformName || event.platformId],
+      ["Received", event.receivedAt ? formatDate(event.receivedAt) : null],
+      ["IP", C.showRawIp ? event.ip : "hidden"],
+      ["IP hash", event.ipHash],
+      ["Platform IP", C.showPlatformIp ? event.platformIp : "hidden"],
+      ["Country", event.country], ["Region", event.region], ["City", event.city],
+      ["Latitude", event.latitude], ["Longitude", event.longitude],
+      ["ASN", event.asn], ["Organization", event.asOrganization],
+      ["Browser", [event.browser, event.browserVersion].filter(Boolean).join(" ")],
+      ["OS", [event.os, event.osVersion].filter(Boolean).join(" ")],
+      ["Device", [event.device, event.deviceVendor, event.deviceModel].filter(Boolean).join(" · ")],
+      ["Screen", event.screenWidth && event.screenHeight ? `${event.screenWidth} × ${event.screenHeight}` : null],
+      ["Viewport", event.viewportWidth && event.viewportHeight ? `${event.viewportWidth} × ${event.viewportHeight}` : null],
+      ["Timezone", event.timezone], ["Language", event.language],
+      ["Page", event.pageUrl || event.path], ["Referrer", event.referrer],
+      ["Duration", formatDuration(event.durationMs)], ["Scroll", `${num(event.maxScroll)}%`],
+      ["Visitor ID", event.visitorId], ["Session ID", event.sessionId],
+      ["CF-Ray", event.cfRay], ["Request ID", event.requestId]
+    ];
+    return pairs.filter(([, value]) => value !== null && value !== undefined && value !== "").map(([label, value]) => `<div class="detail-item"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+  }
+
+  function pretty(value) {
+    try { return JSON.stringify(typeof value === "string" ? JSON.parse(value) : value || {}, null, 2); } catch (_) { return String(value || "{}"); }
+  }
+
+  function openEvent(event) {
+    el.drawerTitle.textContent = event.eventId || event.id || "Event details";
+    el.drawerBody.innerHTML = `<div class="detail-grid">${detailRows(event)}</div><div class="json-section"><h3>Custom data</h3><pre>${esc(pretty(event.dataJson))}</pre></div><div class="json-section"><h3>Metadata</h3><pre>${esc(pretty(event.metadataJson))}</pre></div><div class="json-section"><h3>Cloudflare snapshot</h3><pre>${esc(pretty(event.cfJson))}</pre></div><div class="json-section"><h3>Request snapshot</h3><pre>${esc(pretty(event.requestJson))}</pre></div>`;
+    el.drawer.classList.add("open");
+    el.backdrop.classList.add("open");
+    el.drawer.setAttribute("aria-hidden", "false");
+  }
+
+  function closeDrawer() {
+    el.drawer.classList.remove("open");
+    el.backdrop.classList.remove("open");
+    el.drawer.setAttribute("aria-hidden", "true");
+  }
+
+  function apiExamples(kind) {
+    const payload = {
+      platformId: "my-website",
+      platformName: "My Website",
+      platformType: "web",
+      eventType: "pageview",
+      eventId: "stable-unique-event-id",
+      identity: { visitorId: "visitor-123", sessionId: "session-123" },
+      page: { url: "https://example.com/", path: "/", title: "Home", referrer: "" },
+      screen: { width: 1920, height: 1080, devicePixelRatio: 1 },
+      viewport: { width: 1440, height: 900 },
+      data: { sdkMode: "basic" }
+    };
+    if (kind === "js") return `const response = await fetch("${W}/v1/events", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${JSON.stringify(payload, null, 2)})\n});\nconsole.log(await response.json());`;
+    if (kind === "py") return `import requests\n\npayload = ${JSON.stringify(payload, null, 2)}\nr = requests.post("${W}/v1/events", json=payload, timeout=15)\nprint(r.status_code, r.json())`;
+    return `curl -X POST "${W}/v1/events" \\\n  -H "Content-Type: application/json" \\\n  --data '${JSON.stringify(payload)}'`;
+  }
+
+  function renderCode() {
+    const kind = state.codeKind;
+    el.codeBlock.textContent = apiExamples(kind);
+    el.codeTabs.forEach((button) => button.classList.toggle("active", button.dataset.code === kind));
+  }
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(el.codeBlock.textContent || "");
+      toast("API example copied.");
+    } catch (_) {
+      toast("Clipboard access is not available in this browser.", true);
+    }
+  }
+
+  function exportCsv() {
+    const rows = state.overview?.recentEvents || [];
+    if (!rows.length) return toast("There are no recent events to export.", true);
+    const cols = ["receivedAt", "eventId", "platformId", "eventType", "ip", "country", "region", "city", "browser", "os", "device", "path", "durationMs", "maxScroll", "visitorId", "sessionId"];
+    const csv = [cols.join(","), ...rows.map((row) => cols.map((key) => `"${String(row[key] ?? "").replaceAll('"', '""')}"`).join(","))].join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `github-page-insights-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function bind() {
+    el.refresh.addEventListener("click", refresh);
+    el.healthBtn.addEventListener("click", checkHealth);
+    el.theme.addEventListener("click", () => { state.theme = state.theme === "dark" ? "light" : "dark"; applyTheme(); });
+    el.platform.addEventListener("change", () => { state.platform = el.platform.value; selectPlatform(); });
+    el.search.addEventListener("input", () => populatePlatforms(el.search.value));
+    el.rangeSeg.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
+      el.rangeSeg.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+      button.classList.add("active");
+      state.days = button.dataset.days || "7";
+      refresh();
+    }));
+    el.clientTabs.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
+      el.clientTabs.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+      button.classList.add("active");
+      state.clientKind = button.dataset.kind || "browser";
+      renderClient();
+    }));
+    el.backdrop.addEventListener("click", closeDrawer);
+    $("closeDrawer")?.addEventListener("click", closeDrawer);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+    el.exportBtn.addEventListener("click", exportCsv);
+    el.codeTabs.forEach((button) => button.addEventListener("click", () => { state.codeKind = button.dataset.code || "curl"; renderCode(); }));
+    el.copyCodeBtn.addEventListener("click", copyCode);
+  }
+
+  async function init() {
+    applyTheme();
+    bind();
+    populatePlatforms();
+    renderCode();
+    applyBasicHealth("Connecting to the Worker…", true);
+    await refresh();
+    const interval = Number(C.autoRefreshMs || 120000);
+    if (Number.isFinite(interval) && interval >= 60000) {
+      setInterval(() => { if (!document.hidden) refresh(); }, interval);
+    }
+  }
+
+  init().catch((error) => {
+    console.error(error);
+    applyBasicHealth(`Startup error: ${error.message}`, false);
+    setStatus("error", "Offline");
+  });
 })();

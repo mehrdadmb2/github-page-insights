@@ -1,44 +1,47 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#070b14"><meta name="description" content="Connect a website to Universal Event Insights.">
-  <title>Connect a website · Universal Event Insights</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
+  <title>Connect a site · GitHub Page Insights</title>
   <link rel="icon" href="logo.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><span class="orb orb-a"></span><span class="orb orb-b"></span><span class="orb orb-c"></span><span class="grid-glow"></span><span class="noise"></span></div>
-  <header class="topbar glass"><a class="brand" href="./"><span class="brand-mark"><img src="logo.svg" alt=""></span><span class="brand-copy"><strong>Universal Event Insights</strong><small>Connection wizard</small></span></a><div class="top-actions"><a class="icon-button" href="./" title="Back to dashboard" aria-label="Back to dashboard">←</a></div></header>
-  <main class="page-shell">
-    <section class="panel glass" style="max-width:980px;margin:22px auto;padding:24px">
-      <span class="eyebrow">SIMPLE SETUP</span><h1 style="margin:8px 0 8px;font:700 clamp(30px,5vw,48px)/1.04 'Space Grotesk',Inter,sans-serif">Connect a website in under a minute.</h1>
-      <p style="margin:0;color:#aebbd0;max-width:760px;line-height:1.7;font-size:13px">Basic mode sends one pageview request per page load. It does not attach click, scroll, visibility or heartbeat listeners.</p>
-      <div class="advanced-grid two" style="margin-top:18px">
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">1 · IDENTITY</span><h2>Your platform</h2></div></div>
-          <label class="control-field" style="margin-bottom:10px"><span>Platform ID</span><input id="platformId" value="my-website" placeholder="my-website"></label>
-          <label class="control-field"><span>Platform name</span><input id="platformName" value="My Website" placeholder="My Website"></label>
-          <div class="tag" style="margin-top:11px">Use the same ID everywhere this site sends events.</div>
-        </article>
-        <article class="panel glass"><div class="panel-head"><div><span class="eyebrow">2 · SNIPPET</span><h2>Paste before &lt;/body&gt;</h2></div></div>
-          <div class="json-box"><header>HTML</header><pre id="snippet"></pre></div>
-          <button class="btn btn-primary wide" id="copyBtn">📋 Copy snippet</button>
-        </article>
-      </div>
-      <article class="panel glass" style="margin-top:14px"><div class="panel-head"><div><span class="eyebrow">3 · VERIFY</span><h2>Find your data</h2></div></div>
-        <div class="steps"><div><b>01</b><span><strong>Deploy the snippet.</strong> Open the connected website once.</span></div><div><b>02</b><span><strong>Return here.</strong> Open the dashboard and press Refresh.</span></div><div><b>03</b><span><strong>Select the platform.</strong> Its IP, location, device and browser details appear in the visitor stream and event inspector.</span></div></div>
-        <div class="tag" style="margin-top:12px">Worker: https://github-page-insights-worker.game-developer-mb.workers.dev</div>
+  <div class="bg-grid" aria-hidden="true"></div><div class="orb orb-a" aria-hidden="true"></div><div class="orb orb-b" aria-hidden="true"></div>
+  <header class="topbar glass"><div class="brand-wrap"><img class="brand-logo" src="logo.svg" alt=""><div class="brand-copy"><div class="brand-line"><strong>GitHub Page Insights</strong><span class="badge badge-accent">CONNECT</span></div><span class="brand-sub">Simple website integration</span></div></div><a class="btn secondary" href="index.html">← Dashboard</a></header>
+  <main class="container narrow">
+    <section class="hero glass wizard-hero"><div class="hero-copy"><span class="eyebrow">60-SECOND SETUP</span><h1>Connect a website without building an analytics backend.</h1><p>Choose a stable platform ID, copy the generated snippet, place it before the closing body tag, publish, then open your website once.</p><div class="hero-chips"><span class="chip">1 request / page load</span><span class="chip">No secret required</span><span class="chip">IP + Geo enriched by Worker</span></div></div></section>
+    <section class="wizard-grid">
+      <article class="glass panel"><div class="section-title"><div><span class="eyebrow">STEP 01</span><h2>Describe the site</h2></div><span class="badge badge-success">BASIC</span></div>
+        <label class="field-label" for="siteId">Platform ID</label><input class="input" id="siteId" value="my-website" placeholder="my-website">
+        <small class="field-help">Use lowercase letters, numbers, dots, dashes or underscores. Keep it stable forever.</small>
+        <label class="field-label" for="siteName">Platform name</label><input class="input" id="siteName" value="My Website" placeholder="My Website">
+        <label class="field-label" for="siteUrl">Website URL</label><input class="input" id="siteUrl" value="https://example.com" placeholder="https://example.com">
       </article>
+      <article class="glass panel"><div class="section-title"><div><span class="eyebrow">STEP 02</span><h2>Copy the snippet</h2></div></div><div class="code-shell"><button id="copySnippet" class="copy-code">Copy</button><pre id="snippet"></pre></div></article>
     </section>
+    <section class="glass panel"><div class="section-title"><div><span class="eyebrow">STEP 03</span><h2>Paste and verify</h2></div></div><div class="verify-grid"><div class="verify-step"><b>1</b><span>Paste the snippet into your website HTML.</span></div><div class="verify-step"><b>2</b><span>Publish the site and open it once in a fresh browser tab.</span></div><div class="verify-step"><b>3</b><span>Return to the Dashboard and select the new platform.</span></div><div class="verify-step"><b>4</b><span>You should see a <code>pageview</code>, visitor, session, IP and enrichment data.</span></div></div></section>
+    <section class="glass panel"><div class="section-title"><div><span class="eyebrow">ADVANCED</span><h2>Optional controls</h2></div><span class="badge badge-warning">ON DEMAND</span></div><p class="muted">Basic mode is intentionally quiet. Do not add click, scroll or heartbeat telemetry unless you actually need those separate events.</p><div class="advanced-note"><strong>Recommended default</strong><span>Keep Basic mode at one pageview request per page load. The Worker can enrich that request with IP, country, region, city, ASN, browser, OS, device and other available request metadata.</span></div></section>
   </main>
   <script src="config.js"></script>
   <script>
     (function(){
-      const C=window.PAGE_INSIGHTS_CONFIG||{};const worker=String(C.workerUrl||'').replace(/\/+$/,'');const id=document.getElementById('platformId');const name=document.getElementById('platformName');const out=document.getElementById('snippet');const copy=document.getElementById('copyBtn');
-      function render(){const pid=(id.value||'my-website').trim().replace(/[^a-zA-Z0-9._-]/g,'-')||'my-website';const pn=(name.value||'My Website').trim()||pid;id.value=pid;out.textContent=`<!-- Universal Event Insights -->\n<meta name="page-insights-platform-id" content="${pid}">\n<meta name="page-insights-platform-name" content="${pn.replace(/"/g,'&quot;')}">\n<script>window.PAGE_INSIGHTS_CONFIG = {\n  workerUrl: "${worker}",\n  platformId: "${pid}",\n  platformName: "${pn.replace(/"/g,'\\"')}",\n  platformType: "web",\n  environment: "production",\n  appVersion: "1.0.0"\n};<\/script>\n<script src="${C.analyticsUrl||location.origin+'/analytics.js'}" defer><\/script>`}
-      id.addEventListener('input',render);name.addEventListener('input',render);copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(out.textContent);copy.textContent='✅ Copied';setTimeout(()=>copy.textContent='📋 Copy snippet',1400)}catch{copy.textContent='Select and copy the snippet';}});render();
+      const $=id=>document.getElementById(id);
+      const clean=s=>String(s||"").trim().toLowerCase().replace(/[^a-z0-9._-]+/g,"-").replace(/-{2,}/g,"-").replace(/^[._-]+|[._-]+$/g,"").slice(0,80)||"my-website";
+      const update=()=>{
+        const id=clean($("siteId").value); $("siteId").value=id;
+        const name=$("siteName").value.trim()||id;
+        const url=$("siteUrl").value.trim()||"https://example.com";
+        const base=location.origin+location.pathname.replace(/connect\.html$/,"analytics.js");
+        $("snippet").textContent=`<meta name="page-insights-platform-id" content="${id}">
+<meta name="page-insights-platform-name" content="${name.replaceAll('"','&quot;')}">
+<script src="${base}"><\/script>`;
+      };
+      ["siteId","siteName","siteUrl"].forEach(id=>$(id).addEventListener("input",update));
+      $("copySnippet").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("snippet").textContent);$("copySnippet").textContent="Copied";setTimeout(()=>$("copySnippet").textContent="Copy",1500)}catch{}});
+      update();
     })();
   </script>
 </body>
