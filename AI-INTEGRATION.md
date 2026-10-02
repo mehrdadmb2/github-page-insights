@@ -1,45 +1,69 @@
-# AI Integration Guide — Universal Event Insights
+# AI / Agent Integration — Universal Event Insights
 
-This file is intended for coding agents, AI assistants and automated integration tools.
+This document is the machine-friendly path. For a normal website, use `docs/connect.html` first.
 
-## 1. Authoritative source
+## 1. Runtime contract
 
-Always start from:
+Authoritative endpoint:
 
 ```http
 GET https://github-page-insights-worker.game-developer-mb.workers.dev/v1/schema
 ```
 
-Do not infer endpoint names, field names, response shapes or authentication rules from an old README, memory, or a previous generated integration.
-
-Repository copies of the contract are:
+Repository copies:
 
 ```text
 docs/api-schema.json
 docs/openapi.yaml
 ```
 
-The runtime endpoint is authoritative when it differs from a stale local copy.
+## 2. Simplest website integration
 
-## 2. Integration sequence
+Use one stable `platformId` and the existing browser SDK:
 
-```text
-GET /v1/schema
-        ↓
-read identityField
-        ↓
-choose stable platformId
-        ↓
-POST /v1/events
-        ↓
-save requestId + eventId
-        ↓
-GET /v1/platforms/<platformId>
-        ↓
-verify totals/recentEvents
+```html
+<script>
+window.PAGE_INSIGHTS_CONFIG = {
+  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  platformId: "my-website",
+  platformName: "My Website",
+  platformType: "web"
+};
+</script>
+<script src="https://mehrdadmb2.github.io/github-page-insights/analytics.js" defer></script>
 ```
 
-## 3. Minimal event
+Basic mode sends one pageview for a page load and one pageleave when leaving the page. It creates a stable visitor ID and a 30-minute inactivity session.
+
+## 3. Find the data
+
+Discover:
+
+```http
+GET /v1/platforms
+```
+
+Read one platform:
+
+```http
+GET /v1/platforms/<platformId>?days=7&lite=1
+```
+
+Read advanced analytics:
+
+```http
+GET /v1/platforms/<platformId>?days=7
+```
+
+Read recent raw events:
+
+```http
+GET /v1/platforms/<platformId>/events?days=7&limit=100
+```
+
+## 4. Universal event integration
+
+Minimum:
 
 ```json
 {
@@ -47,7 +71,7 @@ verify totals/recentEvents
 }
 ```
 
-## 4. Safe recommended event
+Recommended:
 
 ```json
 {
@@ -62,69 +86,69 @@ verify totals/recentEvents
   },
   "data": {
     "applicationSpecificField": "value"
-  },
-  "metadata": {
-    "environment": "production"
   }
 }
 ```
 
-## 5. Rules for AI-generated clients
+Collector:
 
-1. Use `platformId` as the stable namespace.
-2. Do not hard-code a list of platforms into the Worker.
-3. Use `eventId` whenever an operation can be retried.
-4. Use `eventType` for the event type.
-5. Keep application-specific data inside `data` and `metadata`.
-6. Never put secrets into analytics payloads.
-7. Never put `GITHUB_TOKEN`, `ADMIN_KEY`, Telegram tokens, database credentials or cookies into frontend source code.
-8. Treat `/v1/admin/*` as backend-only.
-9. Use `/v1/schema` before modifying generated integration code.
-10. Do not change the Worker merely to add a new platform namespace.
-
-## 6. Common mappings
-
-```text
-platformId       ← platform_id
-platformName     ← platform_name
-platformType     ← platform_type
-eventType        ← event_type / eventName / event_name
-eventId          ← event_id
-visitorId        ← visitor_id
-sessionId        ← session_id
-userId           ← user_id
-pageUrl          ← page_url
-platformIp       ← platform_ip
+```http
+POST /v1/events
+Content-Type: application/json
 ```
 
-Nested forms are also supported for common structures.
+Always retain `requestId`, `eventId` and `platformId` when troubleshooting.
 
-## 7. Verification
+## 5. Advanced event types
 
-A successful creation normally returns:
-
-```text
-201
-```
-
-A duplicate event ID normally returns:
+Custom event types are allowed. The recommended standard types include:
 
 ```text
-200
+pageview
+pageleave
+request
+login
+logout
+purchase
+error
+custom
 ```
 
-An accepted event with degraded aggregate processing can return:
+Browser Basic mode deliberately does not emit high-volume click/scroll/visibility/heartbeat telemetry unless explicitly enabled.
+
+## 6. Security
+
+Never place these in frontend code:
 
 ```text
-202
+GITHUB_TOKEN
+ADMIN_KEY
+TELEGRAM_BOT_TOKEN
+TELEGRAM_WEBHOOK_SECRET
+D1 credentials
 ```
 
-Always retain:
+Admin endpoints require `X-Admin-Key`.
+
+## 7. Telegram
+
+Telegram is optional. Set the three secrets on the Worker:
 
 ```text
-requestId
-eventId
-platformId
+TELEGRAM_BOT_TOKEN
+TELEGRAM_ADMIN_CHAT_ID
+TELEGRAM_WEBHOOK_SECRET
 ```
 
-for diagnostic correlation.
+Then deploy and call:
+
+```text
+GET /telegram/setup
+GET /telegram/test
+```
+
+Telegram notifications suppress low-value high-volume browser events such as clicks, scroll, visibility and heartbeat.
+
+## 8. Deployment model
+
+GitHub Pages uses GitHub Actions. The Worker is deployed manually with Wrangler. The repository is intentionally not connected to Cloudflare Workers Builds.

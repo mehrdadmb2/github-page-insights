@@ -1,13 +1,11 @@
-# مسیر نصب GUI
+# Simple setup
 
-این فایل قدیمیِ GUI است و فقط برای مراجعه به مسیر جدید نگه داشته شده است.
+For normal use, start with:
 
-در نسخه فعلی Worker با Cloudflare Dashboard Build نمی‌شود.
+**`START-HERE.md`**
 
-برای Worker و D1 از Wrangler در Windows استفاده کنید:
+The GitHub Pages dashboard also has **Connect a website**, which generates the snippet and can test whether the platform is visible in the Worker.
 
-```text
-SETUP-MANUAL-WRANGLER-WINDOWS-FA.md
-```
+The detailed Windows/Wrangler deployment guide remains available as an advanced reference:
 
-Cloudflare Dashboard فقط برای موارد مدیریتی مثل مشاهده Worker، Logs و در صورت نیاز Pages/Domain استفاده می‌شود.
+`SETUP-MANUAL-WRANGLER-WINDOWS-FA.md`

@@ -37,7 +37,7 @@ for (const [name, [a, b]] of Object.entries(sets)) {
 }
 if (sets.events[0].length !== 96) throw new Error(`EVENT_COLUMN_COUNT:${sets.events[0].length}`);
 if (apiSchema.eventColumnCount !== 96) throw new Error(`API_SCHEMA_EVENT_COUNT:${apiSchema.eventColumnCount}`);
-if (apiSchema.workerVersion !== "11.0.0") throw new Error(`API_SCHEMA_WORKER_VERSION:${apiSchema.workerVersion}`);
+if (apiSchema.workerVersion !== "12.1.0") throw new Error(`API_SCHEMA_WORKER_VERSION:${apiSchema.workerVersion}`);
 if (!apiSchema.collection?.required?.includes("platformId")) throw new Error("API_SCHEMA_REQUIRED_PLATFORM_ID_MISSING");
 if (apiSchema.collection?.path !== "/v1/events") throw new Error("API_SCHEMA_COLLECTION_PATH_MISMATCH");
 if (!Array.isArray(apiSchema.readEndpoints) || !apiSchema.readEndpoints.length) throw new Error("API_SCHEMA_READ_ENDPOINTS_MISSING");

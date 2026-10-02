@@ -1,38 +1,59 @@
-/* Universal Event Insights Browser SDK v11 */
+/* Universal Event Insights Browser SDK v12.1.0 */
 (function () {
   "use strict";
 
+  if (window.__UEI_SDK_LOADED__) return;
+  window.__UEI_SDK_LOADED__ = true;
+
   const C = window.PAGE_INSIGHTS_CONFIG || {};
   const worker = String(C.workerUrl || "").replace(/\/+$/, "");
-  const meta = name => document.querySelector(`meta[name="${name}"]`)?.content || "";
-  const platformId = (
-    C.platformId ||
-    meta("page-insights-platform-id") ||
-    meta("page-insights-site-id") ||
-    meta("uei-platform-id") ||
-    location.hostname ||
+  const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || "";
+  const configValue = (...values) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== "") || "";
+
+  const platformId = String(configValue(
+    C.platformId,
+    meta("page-insights-platform-id"),
+    meta("page-insights-site-id"),
+    meta("uei-platform-id"),
+    location.hostname,
     "web"
-  ).trim();
-  const platformName = (
-    C.platformName ||
-    meta("page-insights-platform-name") ||
-    meta("page-insights-site-name") ||
-    meta("uei-platform-name") ||
+  )).trim();
+
+  const platformName = String(configValue(
+    C.platformName,
+    meta("page-insights-platform-name"),
+    meta("page-insights-site-name"),
+    meta("uei-platform-name"),
     platformId
-  ).trim();
-  const platformType = (
-    C.platformType ||
-    meta("page-insights-platform-type") ||
-    meta("uei-platform-type") ||
+  )).trim();
+
+  const platformType = String(configValue(
+    C.platformType,
+    meta("page-insights-platform-type"),
+    meta("uei-platform-type"),
     "web"
-  ).trim();
-  const environment = (C.environment || meta("page-insights-environment") || "production").trim();
+  )).trim();
+
+  const environment = String(configValue(
+    C.environment,
+    meta("page-insights-environment"),
+    "production"
+  )).trim();
 
   if (!worker || !platformId) return;
 
-  const storageKey = `uei_v10_${platformId}`;
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const storageKey = `uei_v121_${platformId}`;
   const queueKey = `${storageKey}_queue`;
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const advanced = C.advanced === true || C.advancedTelemetry === true;
+  // Basic mode = one browser -> Worker request per page load, with the visitor snapshot
+  // attached to that request. No heartbeat, polling, click, scroll, or visibility traffic.
+  const trackPageLeave = advanced && C.trackPageLeave === true;
+  const trackClicks = advanced && C.trackClicks === true;
+  const trackScroll = advanced && C.trackScroll === true;
+  const trackVisibility = advanced && C.trackVisibility === true;
+  const heartbeat = advanced && C.heartbeat === true;
+  const periodicQueueFlush = advanced && C.periodicQueueFlush === true;
 
   let pageStart = Date.now();
   let maxScroll = 0;
@@ -40,22 +61,61 @@
   let outboundClicks = 0;
   let lastScrollSent = 0;
   let pageLeft = false;
+  let flushBusy = false;
 
-  const getOrCreate = (storeName, keyName) => {
+  function uuid() {
     try {
-      const store = storeName === "session" ? sessionStorage : localStorage;
-      const current = store.getItem(`${storageKey}_${keyName}`);
-      if (current) return current;
-      const generated = crypto.randomUUID();
-      store.setItem(`${storageKey}_${keyName}`, generated);
-      return generated;
-    } catch {
       return crypto.randomUUID();
+    } catch {
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     }
-  };
+  }
+
+  function safeStorage(kind) {
+    try {
+      return kind === "session" ? sessionStorage : localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  function getOrCreate(kind, name) {
+    const store = safeStorage(kind);
+    if (!store) return uuid();
+    try {
+      const existing = store.getItem(`${storageKey}_${name}`);
+      if (existing) return existing;
+      const value = uuid();
+      store.setItem(`${storageKey}_${name}`, value);
+      return value;
+    } catch {
+      return uuid();
+    }
+  }
 
   const visitorId = getOrCreate("local", "visitor");
-  const sessionId = getOrCreate("session", "session");
+
+  function getSession() {
+    const store = safeStorage("session");
+    if (!store) return uuid();
+    try {
+      const savedId = store.getItem(`${storageKey}_session`);
+      const savedAt = Number(store.getItem(`${storageKey}_session_at`) || 0);
+      const now = Date.now();
+      if (savedId && Number.isFinite(savedAt) && now - savedAt < Number(C.sessionTimeoutMs || 1800000)) {
+        store.setItem(`${storageKey}_session_at`, String(now));
+        return savedId;
+      }
+      const value = uuid();
+      store.setItem(`${storageKey}_session`, value);
+      store.setItem(`${storageKey}_session_at`, String(now));
+      return value;
+    } catch {
+      return uuid();
+    }
+  }
+
+  const sessionId = getSession();
   const userId = C.userId || null;
   const anonymousId = C.anonymousId || null;
   const platformIp = C.platformIp || meta("page-insights-platform-ip") || null;
@@ -66,58 +126,48 @@
     devicePixelRatio: window.devicePixelRatio || 1,
     colorDepth: window.screen?.colorDepth || 24
   };
-  const viewport = () => ({
-    width: window.innerWidth || null,
-    height: window.innerHeight || null
-  });
-  const conn = () => ({
-    effectiveType: connection?.effectiveType || null,
-    type: connection?.type || null,
-    downlink: connection?.downlink ?? null,
-    rtt: connection?.rtt ?? null,
-    saveData: Boolean(connection?.saveData)
-  });
-  const page = () => ({
-    url: location.href,
-    path: location.pathname,
-    queryString: location.search.slice(1),
-    title: document.title,
-    referrer: document.referrer || null
-  });
-  const identity = () => ({ visitorId, sessionId, userId, anonymousId });
 
-  function baseBody(eventType, data, metadata) {
+  function clientHints() {
+    try {
+      const u = navigator.userAgentData;
+      return u ? {
+        brands: Array.isArray(u.brands) ? u.brands.map(x => ({ brand: x.brand, version: x.version })) : [],
+        mobile: Boolean(u.mobile),
+        platform: u.platform || null
+      } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function viewport() {
+    return { width: window.innerWidth || null, height: window.innerHeight || null };
+  }
+
+  function connectionInfo() {
     return {
-      platformId,
-      platformName,
-      platformType,
-      environment,
-      appVersion: C.appVersion || null,
-      platformIp,
-      source: "browser",
-      sdkName: "universal-event-insights-browser",
-      sdkVersion: "11.0.0",
-      eventType,
-      eventId: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      identity: identity(),
-      page: page(),
-      screen: screenInfo,
-      viewport: viewport(),
-      connection: conn(),
-      durationMs: Math.max(0, Date.now() - pageStart),
-      maxScroll,
-      clicks,
-      outboundClicks,
-      data: data || {},
-      metadata: metadata || {}
+      effectiveType: connection?.effectiveType || null,
+      type: connection?.type || null,
+      downlink: connection?.downlink ?? null,
+      rtt: connection?.rtt ?? null,
+      saveData: Boolean(connection?.saveData)
     };
   }
 
-  function readQueue() {
+  function page() {
+    return {
+      url: location.href,
+      path: location.pathname,
+      queryString: location.search.slice(1),
+      title: document.title,
+      referrer: document.referrer || null
+    };
+  }
+
+  function getQueue() {
     try {
       const value = JSON.parse(localStorage.getItem(queueKey) || "[]");
-      return Array.isArray(value) ? value.slice(-20) : [];
+      return Array.isArray(value) ? value.slice(-25) : [];
     } catch {
       return [];
     }
@@ -125,16 +175,48 @@
 
   function saveQueue(queue) {
     try {
-      localStorage.setItem(queueKey, JSON.stringify(queue.slice(-20)));
+      localStorage.setItem(queueKey, JSON.stringify(queue.slice(-25)));
     } catch {
-      // Storage can be unavailable; telemetry still attempts direct delivery.
+      /* storage may be unavailable */
     }
   }
 
   function enqueue(body) {
-    const queue = readQueue();
+    const queue = getQueue();
     queue.push(body);
     saveQueue(queue);
+  }
+
+  function bodyFor(eventType, data, metadata) {
+    return {
+      platformId,
+      platformName,
+      platformType,
+      environment,
+      platformUrl: C.platformUrl || location.origin,
+      platformDomain: location.hostname,
+      appVersion: C.appVersion || null,
+      platformIp,
+      source: "browser",
+      sdkName: "universal-event-insights-browser",
+      sdkVersion: "12.1.0",
+      eventType,
+      eventId: uuid(),
+      timestamp: new Date().toISOString(),
+      identity: { visitorId, sessionId, userId, anonymousId },
+      page: page(),
+      screen: screenInfo,
+      viewport: viewport(),
+      connection: connectionInfo(),
+      clientHints: clientHints(),
+      collection: { mode: advanced ? "advanced" : "basic", requestPolicy: advanced ? "configurable" : "one-per-page-load" },
+      durationMs: Math.max(0, Date.now() - pageStart),
+      maxScroll,
+      clicks,
+      outboundClicks,
+      data: data || {},
+      metadata: metadata || {}
+    };
   }
 
   async function post(body, keepalive) {
@@ -159,101 +241,123 @@
   }
 
   async function flushQueue() {
-    const queue = readQueue();
+    if (flushBusy) return;
+    const queue = getQueue();
     if (!queue.length) return;
-    const remaining = [];
-    for (const item of queue) {
-      const ok = await post(item, false);
-      if (!ok) remaining.push(item);
+    flushBusy = true;
+    try {
+      const remaining = [];
+      for (const item of queue) {
+        const ok = await post(item, false);
+        if (!ok) remaining.push(item);
+      }
+      saveQueue(remaining);
+    } finally {
+      flushBusy = false;
     }
-    saveQueue(remaining);
   }
 
-  function send(eventType, data, metadata, useBeacon) {
-    const body = baseBody(eventType, data, metadata);
+  function recentPageviewDuplicate() {
+    const store = safeStorage("session");
+    if (!store) return false;
+    const signature = `${location.pathname}|${location.search}`;
+    try {
+      const prev = JSON.parse(store.getItem(`${storageKey}_last_pageview`) || "null");
+      const same = prev && prev.signature === signature && Date.now() - Number(prev.at || 0) < 3000;
+      if (!same) store.setItem(`${storageKey}_last_pageview`, JSON.stringify({ signature, at: Date.now() }));
+      return Boolean(same);
+    } catch {
+      return false;
+    }
+  }
 
-    if (useBeacon && navigator.sendBeacon) {
+  function send(eventType, data, metadata, keepalive) {
+    const body = bodyFor(eventType, data, metadata);
+    if (keepalive && navigator.sendBeacon) {
       try {
-        // text/plain avoids a JSON content-type preflight during page shutdown.
         const blob = new Blob([JSON.stringify(body)], { type: "text/plain;charset=UTF-8" });
         if (navigator.sendBeacon(`${worker}/v1/events`, blob)) return;
       } catch {
-        // Fall through to fetch.
+        /* fallback to fetch */
       }
     }
-
-    post(body, Boolean(useBeacon)).then(ok => {
+    post(body, Boolean(keepalive)).then((ok) => {
       if (!ok) enqueue(body);
     });
   }
 
+  function updateSessionTouch() {
+    const store = safeStorage("session");
+    try { store?.setItem(`${storageKey}_session_at`, String(Date.now())); } catch { /* no-op */ }
+  }
+
   function updateScroll() {
-    const documentElement = document.documentElement;
+    if (!trackScroll) return;
+    const root = document.documentElement;
     const body = document.body || {};
-    const top = window.scrollY || documentElement.scrollTop || 0;
-    const total = Math.max(
-      documentElement.scrollHeight,
-      body.scrollHeight || 0,
-      documentElement.offsetHeight || 0,
-      body.offsetHeight || 0
-    ) - window.innerHeight;
+    const top = window.scrollY || root.scrollTop || 0;
+    const total = Math.max(root.scrollHeight, body.scrollHeight || 0, root.offsetHeight || 0, body.offsetHeight || 0) - window.innerHeight;
     maxScroll = total > 0 ? Math.min(100, Math.round((top / total) * 100)) : 100;
-    if (maxScroll - lastScrollSent >= 5) {
+    if (maxScroll - lastScrollSent >= 10) {
       lastScrollSent = maxScroll;
       send("scroll", { depth: maxScroll }, {});
     }
+    updateSessionTouch();
   }
 
-  window.addEventListener("scroll", updateScroll, { passive: true });
-  window.addEventListener("click", event => {
-    clicks += 1;
-    const target = {
-      tag: event.target?.tagName || null,
-      id: event.target?.id || null,
-      className: typeof event.target?.className === "string" ? event.target.className.slice(0, 256) : null
-    };
-    send("click", { target }, {}, false);
+  if (trackScroll) window.addEventListener("scroll", updateScroll, { passive: true });
 
-    const anchor = event.target?.closest?.("a");
-    if (anchor?.href && anchor.origin !== location.origin) {
-      outboundClicks += 1;
-      send("outbound_click", {
-        href: anchor.href,
-        text: (anchor.textContent || "").trim().slice(0, 256)
-      }, {}, false);
-    }
-  }, { passive: true });
+  if (trackClicks) {
+    window.addEventListener("click", (event) => {
+      clicks += 1;
+      updateSessionTouch();
+      const target = {
+        tag: event.target?.tagName || null,
+        id: event.target?.id || null,
+        className: typeof event.target?.className === "string" ? event.target.className.slice(0, 160) : null
+      };
+      send("click", { target }, {}, false);
+      const anchor = event.target?.closest?.("a");
+      if (anchor?.href && anchor.origin !== location.origin) {
+        outboundClicks += 1;
+        send("outbound_click", { href: anchor.href, text: (anchor.textContent || "").trim().slice(0, 180) }, {}, false);
+      }
+    }, { passive: true });
+  }
 
-  document.addEventListener("visibilitychange", () => {
-    send("visibility", { state: document.visibilityState }, {});
-  });
-
-  window.addEventListener("pagehide", () => {
-    if (!pageLeft) {
-      pageLeft = true;
-      send("pageleave", {}, { reason: "pagehide" }, true);
-    }
-  });
-
-  window.addEventListener("beforeunload", () => {
-    if (!pageLeft) {
-      pageLeft = true;
-      send("pageleave", {}, { reason: "beforeunload" }, true);
-    }
-  });
-
-  if (connection?.addEventListener) {
-    connection.addEventListener("change", () => {
-      send("custom", { connectionChanged: true, connection: conn() }, {});
+  if (trackVisibility) {
+    document.addEventListener("visibilitychange", () => {
+      updateSessionTouch();
+      send("visibility", { state: document.visibilityState }, {});
     });
   }
 
-  window.addEventListener("online", flushQueue);
-  setInterval(flushQueue, Math.max(30000, Number(C.queueFlushMs || 60000)));
+  function leaveOnce(reason) {
+    if (pageLeft) return;
+    pageLeft = true;
+    send("pageleave", {}, { reason }, true);
+  }
 
-  updateScroll();
-  send("pageview", {}, {});
-  setInterval(() => {
-    if (!pageLeft) send("heartbeat", {}, {});
-  }, Math.max(15000, Number(C.heartbeatMs || 30000)));
+  if (trackPageLeave) {
+    window.addEventListener("pagehide", () => leaveOnce("pagehide"));
+    window.addEventListener("beforeunload", () => leaveOnce("beforeunload"));
+  }
+  window.addEventListener("online", flushQueue);
+  if (periodicQueueFlush) {
+    setInterval(flushQueue, Math.max(60000, Number(C.queueFlushMs || 120000)));
+  }
+
+  if (connection?.addEventListener && advanced) {
+    connection.addEventListener("change", () => send("connection_change", { connection: connectionInfo() }, {}));
+  }
+
+  if (heartbeat) {
+    setInterval(() => {
+      if (!pageLeft && !document.hidden) send("heartbeat", {}, {});
+    }, Math.max(60000, Number(C.heartbeatMs || 120000)));
+  }
+
+  if (!recentPageviewDuplicate()) send("pageview", {}, {});
+  updateSessionTouch();
+  flushQueue();
 })();

@@ -25,7 +25,7 @@ for (const rel of required) {
 }
 
 const pkg = JSON.parse(read("package.json"));
-if (pkg.version !== "11.0.0") throw new Error(`PROJECT_VERSION_MISMATCH:${pkg.version}`);
+if (pkg.version !== "12.1.0") throw new Error(`PROJECT_VERSION_MISMATCH:${pkg.version}`);
 if (pkg.devDependencies?.wrangler !== "4.145.0") throw new Error("WRANGLER_VERSION_MISMATCH");
 if (pkg.scripts?.deploy !== "wrangler deploy") throw new Error("DEPLOY_SCRIPT_MISMATCH");
 if (pkg.scripts?.check !== "node scripts/preflight.mjs") throw new Error("CHECK_SCRIPT_MISMATCH");

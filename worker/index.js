@@ -1,4 +1,4 @@
-const VERSION = "11.0.0";
+const VERSION = "12.1.0";
 const SERVICE = "universal-event-insights-worker";
 const GH_API = "https://api.github.com";
 const GH_API_VERSION = "2026-03-10";
@@ -113,7 +113,8 @@ export default {
 
       if (request.method === "GET" && ["/health", "/v1/health", "/api/health", "/api/system-health"].includes(path)) {
         const probeGithub = url.searchParams.get("probe") === "github";
-        return systemHealth(env, requestId, probeGithub);
+        const quick = url.searchParams.get("quick") === "1";
+        return systemHealth(env, requestId, probeGithub, quick);
       }
 
       if (request.method === "GET" && ["/v1/schema", "/api/schema"].includes(path)) {
@@ -1157,11 +1158,9 @@ async function recordArchive(env, e, status, attempts, commitSha, fileSha, error
    TELEGRAM
 ============================================================= */
 function telegramEnabled(env) {
-  return Boolean(
-    env.TELEGRAM_BOT_TOKEN &&
-    env.TELEGRAM_ADMIN_CHAT_ID &&
-    String(env.TELEGRAM_ENABLED ?? "false").toLowerCase() === "true"
-  );
+  const setting = String(env.TELEGRAM_ENABLED ?? "true").toLowerCase();
+  if (setting === "false") return false;
+  return Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_ADMIN_CHAT_ID);
 }
 
 function notifyMode(env) {
@@ -1170,8 +1169,10 @@ function notifyMode(env) {
 }
 
 function shouldNotifyEvent(event, newVisitor, newSession) {
-  if (["heartbeat", "visibility", "scroll"].includes(event.eventType)) return false;
-  return Boolean(newVisitor || newSession || event.eventType);
+  const type = String(event?.eventType || "custom").toLowerCase();
+  if (["heartbeat", "visibility", "scroll", "click", "outbound_click", "pageleave", "connection_change"].includes(type)) return false;
+  if (type === "pageview") return Boolean(newVisitor || newSession);
+  return Boolean(newVisitor || newSession || ["request", "login", "logout", "purchase", "error", "custom"].includes(type));
 }
 
 function shouldNotify(env, event, storage) {
@@ -1195,20 +1196,22 @@ async function sendTelegramVisitNotification(env, e, storage, requestId) {
     `🌍 <b>Client IP:</b> <code>${escapeHtml(e.ip || "unknown")}</code>`,
     `🖥️ <b>Platform IP:</b> <code>${escapeHtml(e.platformIp || "unknown")}</code>`,
     `📍 <b>Location:</b> ${escapeHtml([e.city, e.region, e.country].filter(Boolean).join(", ") || "unknown")}`,
+    `🗺️ <b>Coordinates:</b> ${escapeHtml([e.latitude, e.longitude].filter(Boolean).join(", ") || "not available")}`,
+    `🏷️ <b>Postal / Metro:</b> ${escapeHtml([e.postalCode, e.metroCode].filter(Boolean).join(" / ") || "not available")}`,
     `🏢 <b>ASN:</b> ${escapeHtml(String(e.asn || "unknown"))}${e.asOrganization ? ` — ${escapeHtml(e.asOrganization)}` : ""}`,
-    `💻 <b>Device:</b> ${escapeHtml(e.device || "unknown")}`,
+    `📡 <b>Cloudflare POP:</b> ${escapeHtml(e.colo || "unknown")}`,
+    `💻 <b>Device:</b> ${escapeHtml(e.device || "unknown")}${e.deviceVendor || e.deviceModel ? ` — ${escapeHtml([e.deviceVendor, e.deviceModel].filter(Boolean).join(" "))}` : ""}`,
     `🌍 <b>OS:</b> ${escapeHtml(e.os || "unknown")}${e.osVersion ? ` ${escapeHtml(e.osVersion)}` : ""}`,
     `🧭 <b>Browser:</b> ${escapeHtml(e.browser || "unknown")}${e.browserVersion ? ` ${escapeHtml(e.browserVersion)}` : ""}`,
+    `🖥️ <b>Screen:</b> ${escapeHtml([e.screenWidth, e.screenHeight].filter(Boolean).join(" × ") || "unknown")} @ ${escapeHtml(String(e.devicePixelRatio || "1"))}x`,
+    `↔️ <b>Viewport:</b> ${escapeHtml([e.viewportWidth, e.viewportHeight].filter(Boolean).join(" × ") || "unknown")}`,
+    `🗣️ <b>Language / TZ:</b> ${escapeHtml(e.language || "unknown")} · ${escapeHtml(e.timezone || "unknown")}`,
+    `🌐 <b>Network:</b> ${escapeHtml(e.connectionType || "unknown")}${e.connectionDownlink ? ` · ${escapeHtml(String(e.connectionDownlink))} Mbps` : ""}${e.connectionRtt ? ` · ${escapeHtml(String(e.connectionRtt))} ms RTT` : ""}`,
     `📄 <b>Page:</b> ${escapeHtml(e.path || e.pageUrl || "unknown")}`,
     `🔗 <b>Referrer:</b> ${escapeHtml(e.referrerHost || "direct")}`,
-    `⏱️ <b>Duration:</b> ${escapeHtml(formatDuration(e.durationMs))}`,
-    `📜 <b>Scroll:</b> ${e.maxScroll}%`,
-    `🖱️ <b>Clicks:</b> ${e.clicks} / ${e.outboundClicks} outbound`,
     `🧑 <b>Visitor:</b> <code>${escapeHtml(e.visitorId)}</code>`,
     `🪪 <b>Session:</b> <code>${escapeHtml(e.sessionId)}</code>`,
-    `🆔 <b>Request:</b> <code>${escapeHtml(requestId)}</code>`,
-    `🔖 <b>Trace:</b> <code>${escapeHtml(e.traceId || "unknown")}</code>`,
-    `🧱 <b>UA:</b> ${escapeHtml(truncate(e.userAgent || "unknown", 700))}`
+    `🆔 <b>Request:</b> <code>${escapeHtml(requestId)}</code>`
   ];
   if (e.pageUrl) lines.push(`🔎 <b>URL:</b> ${escapeHtml(truncate(e.pageUrl, 700))}`);
   if (!storage.aggregateOk) lines.push(`⚠️ <b>D1 aggregates:</b> ${escapeHtml(storage.aggregateError || "degraded")}`);
@@ -1306,7 +1309,7 @@ async function handleTelegramCommand(env, message, text, requestId) {
 
   if (["/status", "/health"].includes(cmd)) {
     const full = cmd === "/health";
-    const health = await buildHealth(env, requestId, full);
+    const health = await buildHealth(env, requestId, full, !full);
     const c = health.checks;
     const txt = [
       `🛰️ <b>System: ${escapeHtml(health.overall)}</b>`,
@@ -1487,6 +1490,7 @@ async function overview(request, env, requestId) {
   const since = days === "all" ? null : daysAgo(days);
   const filter = days === "all" ? "" : "WHERE received_at >= ?";
   const bind = days === "all" ? [] : [since];
+  const lite = url.searchParams.get("lite") === "1";
 
   const total = await env.DB.prepare(`
     SELECT
@@ -1499,14 +1503,33 @@ async function overview(request, env, requestId) {
     FROM events ${filter}
   `).bind(...bind).first();
 
-  const [daily, countries, browsers, oses, devices, ips, platforms] = await Promise.all([
+  if (lite) {
+    const [daily, platforms] = await Promise.all([
+      grouped(env, `SELECT substr(received_at,1,10) AS day,COUNT(*) AS events,COUNT(CASE WHEN event_type='pageview' THEN 1 END) AS pageviews,COUNT(DISTINCT platform_id || ':' || visitor_id) AS uniqueVisitors FROM events ${filter} GROUP BY day ORDER BY day`, bind),
+      env.DB.prepare(`SELECT platform_id AS platformId,platform_name AS platformName,platform_type AS platformType,total_events AS totalEvents,total_pageviews AS totalPageviews,total_sessions AS totalSessions,total_visitors AS totalVisitors,last_seen AS lastSeen FROM platforms ORDER BY last_seen DESC LIMIT 100`).all()
+    ]);
+    const events = await recentEvents(env, null, days, MAX_LIMIT);
+    return withCors(jsonResponse({
+      ok: true, requestId, days,
+      totals: numbers(total),
+      daily: daily.results || [],
+      platforms: platforms.results || [],
+      recentEvents: events,
+      advanced: false
+    }));
+  }
+
+  const [daily, countries, browsers, oses, devices, ips, platforms, eventTypes, sources, statuses] = await Promise.all([
     grouped(env, `SELECT substr(received_at,1,10) AS day,COUNT(*) AS events,COUNT(CASE WHEN event_type='pageview' THEN 1 END) AS pageviews,COUNT(DISTINCT platform_id || ':' || visitor_id) AS uniqueVisitors FROM events ${filter} GROUP BY day ORDER BY day`, bind),
     grouped(env, `SELECT country AS label,COUNT(*) AS count FROM events ${days === "all" ? "WHERE country IS NOT NULL" : "WHERE received_at>=? AND country IS NOT NULL"} GROUP BY country ORDER BY count DESC LIMIT 30`, bind),
     grouped(env, `SELECT browser,COUNT(*) AS count FROM events ${filter} GROUP BY browser ORDER BY count DESC LIMIT 30`, bind),
     grouped(env, `SELECT os,COUNT(*) AS count FROM events ${filter} GROUP BY os ORDER BY count DESC LIMIT 30`, bind),
     grouped(env, `SELECT device,COUNT(*) AS count FROM events ${filter} GROUP BY device ORDER BY count DESC LIMIT 30`, bind),
     grouped(env, `SELECT ip,COUNT(*) AS count,MAX(city) AS city,MAX(country) AS country FROM events ${days === "all" ? "WHERE ip IS NOT NULL" : "WHERE received_at>=? AND ip IS NOT NULL"} GROUP BY ip ORDER BY count DESC LIMIT 50`, bind),
-    env.DB.prepare(`SELECT platform_id AS platformId,platform_name AS platformName,platform_type AS platformType,total_events AS totalEvents,total_pageviews AS totalPageviews,total_sessions AS totalSessions,total_visitors AS totalVisitors,last_seen AS lastSeen FROM platforms ORDER BY last_seen DESC LIMIT 100`).all()
+    env.DB.prepare(`SELECT platform_id AS platformId,platform_name AS platformName,platform_type AS platformType,total_events AS totalEvents,total_pageviews AS totalPageviews,total_sessions AS totalSessions,total_visitors AS totalVisitors,last_seen AS lastSeen FROM platforms ORDER BY last_seen DESC LIMIT 100`).all(),
+    grouped(env, `SELECT event_type AS label,COUNT(*) AS count FROM events ${filter} GROUP BY event_type ORDER BY count DESC LIMIT 30`, bind),
+    grouped(env, `SELECT COALESCE(NULLIF(referrer_host,''),NULLIF(utm_source,''),'direct') AS label,COUNT(*) AS count FROM events ${filter} GROUP BY label ORDER BY count DESC LIMIT 30`, bind),
+    grouped(env, `SELECT response_status AS label,COUNT(*) AS count FROM events ${filter} AND response_status IS NOT NULL GROUP BY response_status ORDER BY count DESC LIMIT 30`, bind)
   ]);
 
   const events = await recentEvents(env, null, days, MAX_LIMIT);
@@ -1523,7 +1546,11 @@ async function overview(request, env, requestId) {
     devices: devices.results || [],
     ips: ips.results || [],
     platforms: platforms.results || [],
-    recentEvents: events
+    eventTypes: eventTypes.results || [],
+    sources: sources.results || [],
+    statuses: statuses.results || [],
+    recentEvents: events,
+    advanced: true
   }));
 }
 
@@ -1531,11 +1558,13 @@ async function platformStats(request, env, requestId, platformIdRaw) {
   const platformId = normalizePlatformId(platformIdRaw);
   if (!platformId) return withCors(jsonResponse({ ok: false, requestId, error: "INVALID_PLATFORM_ID" }, 400));
   const days = parseDays(new URL(request.url).searchParams.get("days"));
-  const data = await getPlatformSummary(env, platformId, days);
+  const quick = new URL(request.url).searchParams.get("lite") === "1";
+  const data = await getPlatformSummary(env, platformId, days, { lite: quick });
   return withCors(jsonResponse({ ok: true, requestId, ...data }));
 }
 
-async function getPlatformSummary(env, platformId, days) {
+async function getPlatformSummary(env, platformId, days, options = {}) {
+  const lite = Boolean(options.lite);
   const since = days === "all" ? null : daysAgo(days);
   const where = days === "all" ? "platform_id=?" : "platform_id=? AND received_at>=?";
   const bind = days === "all" ? [platformId] : [platformId, since];
@@ -1575,15 +1604,34 @@ async function getPlatformSummary(env, platformId, days) {
     FROM events WHERE ${where}
   `).bind(...bind).first();
 
+  if (lite) {
+    const [daily] = await Promise.all([
+      env.DB.prepare(`SELECT substr(received_at,1,10) AS day,COUNT(*) AS events,COUNT(CASE WHEN event_type='pageview' THEN 1 END) AS views,COUNT(DISTINCT visitor_id) AS uniqueVisitors,COUNT(DISTINCT session_id) AS sessions FROM events WHERE ${where} GROUP BY day ORDER BY day`).bind(...bind).all()
+    ]);
+    const recent = await recentEvents(env, platformId, days, MAX_LIMIT);
+    return {
+      platformId,
+      platform,
+      site: platform,
+      totals: numbers(totals),
+      daily: daily.results || [],
+      recentEvents: recent,
+      advanced: false
+    };
+  }
+
   const recent = await recentEvents(env, platformId, days, MAX_LIMIT);
-  const [daily, countries, browsers, oses, devices, ips, pages] = await Promise.all([
+  const [daily, countries, browsers, oses, devices, ips, pages, eventTypes, sources, statuses] = await Promise.all([
     env.DB.prepare(`SELECT substr(received_at,1,10) AS day,COUNT(*) AS events,COUNT(CASE WHEN event_type='pageview' THEN 1 END) AS views,COUNT(DISTINCT visitor_id) AS uniqueVisitors,COUNT(DISTINCT session_id) AS sessions FROM events WHERE ${where} GROUP BY day ORDER BY day`).bind(...bind).all(),
     env.DB.prepare(`SELECT country AS label,COUNT(*) AS count FROM events WHERE ${where} AND country IS NOT NULL GROUP BY country ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
     env.DB.prepare(`SELECT browser,COUNT(*) AS count FROM events WHERE ${where} GROUP BY browser ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
     env.DB.prepare(`SELECT os,COUNT(*) AS count FROM events WHERE ${where} GROUP BY os ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
     env.DB.prepare(`SELECT device,COUNT(*) AS count FROM events WHERE ${where} GROUP BY device ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
     env.DB.prepare(`SELECT ip,COUNT(*) AS count,MAX(city) AS city,MAX(country) AS country,MAX(browser) AS browser,MAX(os) AS os,MAX(device) AS device FROM events WHERE ${where} AND ip IS NOT NULL GROUP BY ip ORDER BY count DESC LIMIT 50`).bind(...bind).all(),
-    env.DB.prepare(`SELECT path,title,COUNT(*) AS views FROM events WHERE ${where} AND event_type='pageview' GROUP BY path,title ORDER BY views DESC LIMIT 50`).bind(...bind).all()
+    env.DB.prepare(`SELECT path,title,COUNT(*) AS views FROM events WHERE ${where} AND event_type='pageview' GROUP BY path,title ORDER BY views DESC LIMIT 50`).bind(...bind).all(),
+    env.DB.prepare(`SELECT event_type AS label,COUNT(*) AS count FROM events WHERE ${where} GROUP BY event_type ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
+    env.DB.prepare(`SELECT COALESCE(NULLIF(referrer_host,''),NULLIF(utm_source,''),'direct') AS label,COUNT(*) AS count FROM events WHERE ${where} GROUP BY label ORDER BY count DESC LIMIT 30`).bind(...bind).all(),
+    env.DB.prepare(`SELECT response_status AS label,COUNT(*) AS count FROM events WHERE ${where} AND response_status IS NOT NULL GROUP BY response_status ORDER BY count DESC LIMIT 30`).bind(...bind).all()
   ]);
 
   return {
@@ -1598,7 +1646,11 @@ async function getPlatformSummary(env, platformId, days) {
     devices: devices.results || [],
     ips: ips.results || [],
     topPages: pages.results || [],
-    recentEvents: recent
+    eventTypes: eventTypes.results || [],
+    sources: sources.results || [],
+    statuses: statuses.results || [],
+    recentEvents: recent,
+    advanced: true
   };
 }
 
@@ -1847,12 +1899,12 @@ async function adminNotifications(request, env, requestId) {
 /* =============================================================
    HEALTH
 ============================================================= */
-async function systemHealth(env, requestId, probeGithub) {
-  const health = await buildHealth(env, requestId, probeGithub);
+async function systemHealth(env, requestId, probeGithub, quick = false) {
+  const health = await buildHealth(env, requestId, probeGithub, quick);
   return withCors(jsonResponse(health, health.ok ? 200 : 503));
 }
 
-async function buildHealth(env, requestId, probeGithub = false) {
+async function buildHealth(env, requestId, probeGithub = false, quick = false) {
   const checks = {
     worker: {
       status: "ok",
@@ -1867,14 +1919,14 @@ async function buildHealth(env, requestId, probeGithub = false) {
       githubOwner: env.GITHUB_OWNER || null,
       githubRepository: env.GITHUB_REPO || null,
       githubBranch: env.GITHUB_BRANCH || null,
-      telegramEnabled: String(env.TELEGRAM_ENABLED ?? "false").toLowerCase() === "true",
+      telegramEnabled: String(env.TELEGRAM_ENABLED ?? "true").toLowerCase() !== "false",
       telegramConfigured: telegramEnabled(env),
       telegramBotToken: Boolean(env.TELEGRAM_BOT_TOKEN),
       telegramAdminConfigured: Boolean(env.TELEGRAM_ADMIN_CHAT_ID)
     },
-    database: await checkDatabase(env),
-    github: await checkGithub(env, probeGithub),
-    telemetry: await checkTelemetry(env)
+    database: quick ? await checkDatabaseQuick(env) : await checkDatabase(env),
+    github: probeGithub ? await checkGithub(env, true) : { status: "ok", message: "GitHub probe skipped", configured: Boolean(env.GITHUB_TOKEN && env.GITHUB_OWNER && env.GITHUB_REPO), probed: false },
+    telemetry: await checkTelemetryQuick(env)
   };
 
   const statuses = Object.values(checks).map(x => x.status);
@@ -1888,6 +1940,28 @@ async function buildHealth(env, requestId, probeGithub = false) {
     overall,
     checks
   };
+}
+
+async function checkDatabaseQuick(env) {
+  const started = Date.now();
+  try {
+    if (!env.DB) throw Error("D1 binding DB is missing");
+    const row = await env.DB.prepare("SELECT 1 AS ok").first();
+    if (!row) throw Error("D1 ping returned no result");
+    return {
+      status: "ok",
+      message: "D1 is reachable (quick check)",
+      latencyMs: Date.now() - started,
+      schemaVerified: false
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      message: "D1 quick health check failed",
+      latencyMs: Date.now() - started,
+      error: String(error?.message || error)
+    };
+  }
 }
 
 async function checkDatabase(env) {
@@ -2030,6 +2104,17 @@ async function checkGithub(env, probe) {
   }
 }
 
+async function checkTelemetryQuick(env) {
+  try {
+    const row = await env.DB.prepare(`SELECT received_at,platform_id,event_type FROM events ORDER BY rowid DESC LIMIT 1`).first();
+    if (!row) return { status: "warning", message: "No telemetry received yet", latestEventAt: null, ageSeconds: null };
+    const ageSeconds = Math.max(0, Math.floor((Date.now() - new Date(row.received_at).getTime()) / 1000));
+    return { status: ageSeconds <= 1800 ? "ok" : "stale", message: ageSeconds <= 1800 ? "Telemetry is present" : "Telemetry is stale", latestEventAt: row.received_at, latestPlatformId: row.platform_id, latestEventType: row.event_type, ageSeconds };
+  } catch (error) {
+    return { status: "error", message: String(error?.message || error) };
+  }
+}
+
 async function checkTelemetry(env) {
   try {
     const row = await env.DB.prepare(`
@@ -2070,8 +2155,10 @@ function apiContract() {
       collect: "POST /v1/events",
       collectCompatibility: ["POST /v1/collect", "POST /collect"],
       platforms: "GET /v1/platforms",
-      overview: "GET /v1/overview?days=7",
-      platform: "GET /v1/platforms/<platformId>?days=7",
+      overview: "GET /v1/overview?days=7&lite=1",
+      overviewAdvanced: "GET /v1/overview?days=7",
+      platform: "GET /v1/platforms/<platformId>?days=7&lite=1",
+      platformAdvanced: "GET /v1/platforms/<platformId>?days=7",
       platformEvents: "GET /v1/platforms/<platformId>/events?days=7&limit=100",
       visitors: "GET /v1/platforms/<platformId>/visitors?limit=100",
       sessions: "GET /v1/platforms/<platformId>/sessions?limit=100",

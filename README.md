@@ -1,303 +1,199 @@
-# 🌌 Universal Event Insights — v11.0.0
+# Universal Event Insights
 
-A universal, request-driven telemetry platform for websites, APIs, bots, apps, scripts, SaaS systems and custom applications. The repository stores the Worker source, D1 schema, GitHub Pages dashboard and versioned API documentation.
+A simple universal analytics collector for websites, GitHub Pages, APIs, bots, apps and scripts.
 
-> **Deployment model:** this repository is **not connected to Cloudflare Workers Builds**. The Worker is deployed manually from Windows with Wrangler. GitHub Pages is deployed separately with GitHub Actions.
-
-## What changed in v11
-
-- Workers Builds / auto-build integration removed from the repository.
-- `tools/cloudflare-auto-build` removed.
-- No `auto` build command.
-- No Cloudflare build watch paths are required.
-- `wrangler.jsonc` is the single Worker deployment configuration.
-- `npm run check` validates the project before deploy.
-- `npx wrangler deploy --dry-run` is the preflight deployment check.
-- Worker runtime version: `11.0.0`.
-- API contract: `4.1`.
-- D1 schema contract remains `9.0` and uses the existing 96-column `events` table.
-
-## Architecture
+## The simple flow
 
 ```text
-Any Client
-   │
-   │ POST /v1/events
-   ▼
+Website
+  ↓
+analytics.js
+  ↓
 Cloudflare Worker
-   ├── validate / normalize
-   ├── Cloudflare edge enrichment
-   ├── D1 event storage
-   ├── visitor/session/platform aggregates
-   ├── GitHub per-event archive
-   └── optional Telegram notification
-   │
-   ├──────────────► Cloudflare D1
-   │
-   ├──────────────► GitHub Archive
-   │
-   └──────────────► Telegram
-
-GitHub repository
-   └── docs/ → GitHub Pages Dashboard
-
-Windows PowerShell
-   └── Wrangler → manual Worker deployment
+  ↓
+D1
+  ↓
+GitHub Pages dashboard
 ```
 
-## Repository
+You do not need another Worker for every website. Each website gets a unique `platformId`.
+
+## Connect a website — 3 steps
+
+### 1. Choose an ID
+
+Examples:
 
 ```text
-worker/index.js                         Worker runtime
-wrangler.jsonc                          Wrangler config
-db/schema-v9.sql                        Canonical D1 schema
-db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql  Fresh D1 install
-docs/                                   GitHub Pages dashboard
-docs/analytics.js                       Browser telemetry SDK
-docs/api-schema.json                    Machine-readable contract
-docs/openapi.yaml                       OpenAPI 3.1 contract
-.github/workflows/pages.yml             GitHub Pages deploy
-scripts/                                 Validation helpers
-scripts/windows/                         Windows/PowerShell helpers
-README.md                               Human documentation
-AI-INTEGRATION.md                       AI/agent integration guide
-SECURITY.md                             Security guidance
-SETUP-MANUAL-WRANGLER-WINDOWS-FA.md     Full deployment guide
+my-website
+portfolio
+imdb-showcase
+my-shop
+my-telegram-bot
 ```
 
-## Production endpoints
+### 2. Paste this snippet
+
+Put it before `</head>` or immediately before your closing body tag:
+
+```html
+<script>
+window.PAGE_INSIGHTS_CONFIG = {
+  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  platformId: "my-website",
+  platformName: "My Website",
+  platformType: "web"
+};
+</script>
+<script src="https://mehrdadmb2.github.io/github-page-insights/analytics.js" defer></script>
+```
+
+Change only `platformId` and `platformName`. Do not place `GITHUB_TOKEN`, `ADMIN_KEY` or Telegram secrets in a website.
+
+### 3. Open the website once
+
+Open the website, wait a moment, then open the dashboard and choose the platform from **All platforms**. No manual database insert is required.
+
+## Basic mode
+
+The default browser SDK intentionally sends only the useful basics:
+
+- 1 `pageview` per page load
+- stable visitor ID
+- session ID with a 30-minute inactivity window
+- page URL, title and referrer
+- browser, OS, device and screen data
+- IP and Cloudflare network context available to the Worker
+- in Basic mode, these details travel in the same request — no second geo/device request is made
+
+Clicks, scroll telemetry, visibility events and heartbeats are **off by default**. This keeps normal websites cheap and avoids turning one visit into hundreds of database writes.
+
+## Advanced mode
+
+Enable only when you need deeper telemetry:
+
+```js
+window.PAGE_INSIGHTS_CONFIG = {
+  workerUrl: "https://github-page-insights-worker.game-developer-mb.workers.dev",
+  platformId: "my-website",
+  platformName: "My Website",
+  advancedTelemetry: true,
+  trackPageLeave: true,
+  trackClicks: true,
+  trackScroll: true,
+  trackVisibility: false,
+  heartbeat: false
+};
+```
+
+The dashboard loads expensive analytics such as geo, IP ranking, browsers, OS, devices, sources, event types, HTTP status and top pages only when **Advanced** is opened.
+
+## Find the data
+
+1. Open the GitHub Pages dashboard.
+2. Select the website from **All platforms**.
+3. Read **Pageviews / Visitors / Sessions / Events** first. Open **Advanced analytics** only when needed.
+
+For raw event details, click a row in **Recent events**. The event inspector shows IP, geo, device, page, session, request ID and JSON payload snapshots.
+
+## API
+
+Collector:
+
+```http
+POST /v1/events
+```
+
+Discover connected platforms:
+
+```http
+GET /v1/platforms
+```
+
+Global basic overview:
+
+```http
+GET /v1/overview?days=7&lite=1
+```
+
+Global advanced overview:
+
+```http
+GET /v1/overview?days=7
+```
+
+One platform:
+
+```http
+GET /v1/platforms/my-website?days=7&lite=1
+GET /v1/platforms/my-website?days=7
+GET /v1/platforms/my-website/events?days=7&limit=100
+```
+
+Health:
+
+```http
+GET /v1/health?quick=1
+GET /v1/health
+```
+
+## Telegram
+
+Telegram is optional. Once `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ADMIN_CHAT_ID` exist as Worker secrets, the Worker configuration enables Telegram by default. `TELEGRAM_ENABLED=false` can still be used as an explicit off switch.
+
+Setup endpoint:
 
 ```text
-Worker:   https://github-page-insights-worker.game-developer-mb.workers.dev
-Collector: POST /v1/events
-Schema:    GET /v1/schema
-Health:    GET /v1/health
-Platforms: GET /v1/platforms
-Overview:  GET /v1/overview?days=7
+GET /telegram/setup
 ```
 
-## One-time Windows deployment
+Test endpoint:
+
+```text
+GET /telegram/test
+```
+
+Telegram notifications default to **new visitors**. A Basic pageview can produce one detailed visitor notification containing IP, IP geolocation, device, OS, browser and other request context. This is a Worker-side Telegram request, not another browser telemetry request. High-volume events such as clicks, scroll, visibility and heartbeats are ignored by default.
+
+## Basic visitor data is not a heavy mode
+
+The important distinction is between **data richness** and **event frequency**. Basic mode can store a rich visitor snapshot in one `pageview` request. Click and scroll tracking is what creates repeated requests, so those signals remain disabled unless Advanced is explicitly enabled.
+
+The Worker can enrich the same incoming request with Cloudflare connection metadata such as IP geolocation and network information. Cloudflare documents `request.cf` fields including country, city, region, latitude, longitude, ASN and organization. citeturn220713search12turn220713search14
+
+## Important D1 note
+
+Cloudflare now enforces the Workers Free daily D1 row-read and row-write limits. When an account reaches the daily limit, D1 queries fail until the limit resets at midnight UTC. The dashboard therefore uses light queries, slower refresh and on-demand Advanced analytics. Cloudflare documents 5 million rows read/day and 100,000 rows written/day for Workers Free.
+
+## Deployment
+
+### Worker
+
+The Worker is not deployed by GitHub Actions in this project. Deploy it manually with Wrangler:
 
 ```powershell
 npm install
 npx wrangler login --use-keyring
 npx wrangler whoami
-npx wrangler d1 list
-.\scripts\windows\02-sync-d1-id.ps1
-npx wrangler d1 execute github-page-insights --remote --file=./db/UNIVERSAL-EVENT-INSIGHTS-D1-ONE-SHOT-V9.1.sql --yes
-npx wrangler secret put GITHUB_TOKEN
-npx wrangler secret put ADMIN_KEY
-npm run check
-npx wrangler deploy --dry-run
-npx wrangler deploy
-```
-
-Full steps: `SETUP-MANUAL-WRANGLER-WINDOWS-FA.md`.
-
-## Daily Worker update
-
-```powershell
 npm run check
 npx wrangler deploy
 ```
 
-No GitHub → Cloudflare automatic deployment is expected in this version.
+### GitHub Pages
 
-## GitHub Pages update
+GitHub Pages is deployed from `docs/` through the repository Pages workflow. Set **Pages → Source → GitHub Actions**.
 
-Only dashboard changes use GitHub Actions:
-
-```text
-docs/*
-   ↓
-.github/workflows/pages.yml
-   ↓
-GitHub Pages
-```
-
-Set GitHub Pages source to **GitHub Actions**.
-
-## Universal API — minimum event
-
-```json
-{
-  "platformId": "my-platform"
-}
-```
-
-## Universal API — recommended event
-
-```json
-{
-  "platformId": "my-web-app",
-  "platformName": "My Web App",
-  "platformType": "web",
-  "platformUrl": "https://example.com",
-  "eventType": "pageview",
-  "eventId": "evt-001",
-  "identity": {
-    "visitorId": "visitor-001",
-    "sessionId": "session-001",
-    "userId": "user-001"
-  },
-  "page": {
-    "url": "https://example.com/dashboard",
-    "path": "/dashboard",
-    "title": "Dashboard",
-    "referrer": "https://google.com/"
-  },
-  "screen": { "width": 1920, "height": 1080 },
-  "viewport": { "width": 1536, "height": 864 },
-  "data": { "action": "opened" },
-  "metadata": { "environment": "production" }
-}
-```
-
-## cURL
-
-```bash
-curl -X POST "https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events" \
-  -H "Content-Type: application/json" \
-  -d '{"platformId":"my-platform","eventType":"custom","data":{"source":"curl"}}'
-```
-
-## JavaScript
-
-```javascript
-await fetch("https://github-page-insights-worker.game-developer-mb.workers.dev/v1/events", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    platformId: "my-platform",
-    eventType: "custom",
-    data: { action: "opened" }
-  })
-});
-```
-
-## Python
-
-```python
-import requests
-
-WORKER = "https://github-page-insights-worker.game-developer-mb.workers.dev"
-payload = {
-    "platformId": "my-python-service",
-    "eventType": "job_completed",
-    "data": {"jobId": "J-100", "success": True},
-}
-response = requests.post(f"{WORKER}/v1/events", json=payload, timeout=15)
-print(response.status_code)
-print(response.json())
-```
-
-## Reading your data later
-
-Live aggregates and recent telemetry should be read through the Worker API. GitHub archive files are intended for browsable/versioned historical export.
-
-```http
-GET /v1/platforms/<platformId>?days=30
-GET /v1/platforms/<platformId>/events?days=30&limit=100
-GET /v1/platforms/<platformId>/visitors?limit=100
-GET /v1/platforms/<platformId>/sessions?limit=100
-GET /v1/overview?days=30
-```
-
-## Browser/GitHub Pages integration
-
-Include the SDK: `docs/analytics.js`. Configure `docs/config.js` or HTML metadata with a stable `platformId`. The SDK generates visitor/session identifiers, tracks pageview/heartbeat/pageleave/visibility/click/scroll/outbound events, and queues failed requests locally for retry.
-
-```html
-<meta name="uei-platform-id" content="my-site">
-<meta name="uei-platform-name" content="My Site">
-<script src="https://YOUR-GITHUB-PAGES-DOMAIN/analytics.js"></script>
-```
-
-If a site uses a Content Security Policy, allow the Worker URL in `connect-src`.
-
-## D1 data model
-
-The main `events` table has 96 standardized columns covering event identity, platform, user/session, page/referrer/UTM, locale, IP/Geo, browser/OS/device, screen, network, HTTP, Cloudflare metadata, response/engagement and JSON snapshots.
-
-Key JSON preservation fields:
+## Repository layout
 
 ```text
-data_json
-metadata_json
-headers_json
-cf_json
-request_json
-payload_json
-raw_event_json
+worker/       Cloudflare Worker
+db/           D1 schema
+docs/         GitHub Pages dashboard + browser SDK
+scripts/      validation helpers
+tests/        runtime/schema validation
+wrangler.jsonc
 ```
 
-Common secret-bearing headers such as `Authorization` and `Cookie` are redacted from stored request snapshots. Raw client IP is intentionally stored in `ip` and a scoped hash is stored in `ip_hash`.
+## Data model
 
-## GitHub archive
-
-Each event is archived independently:
-
-```text
-data/platforms/<platformId>/events/YYYY/MM/DD/<timestamp>_<eventId>.json
-```
-
-This avoids a shared daily file and makes individual events easy to inspect/export.
-
-## Telegram
-
-Telegram is optional. The Worker exposes:
-
-```text
-GET  /telegram/setup
-GET  /telegram/test
-POST /telegram/webhook
-```
-
-Set the three Telegram secrets, change `TELEGRAM_ENABLED` to `true` in `wrangler.jsonc`, and run `npx wrangler deploy`.
-
-## AI integration contract
-
-An AI agent integrating another repository should follow this sequence:
-
-```text
-1. GET /v1/schema
-2. Treat /v1/schema as runtime authority
-3. Choose a stable platformId
-4. Send POST /v1/events
-5. Use eventId for retry/idempotency
-6. Check the HTTP response and requestId
-7. Use /v1/platforms/<platformId> for live analytics
-8. Use /v1/platforms/<platformId>/events for recent raw events
-9. Never put GITHUB_TOKEN or ADMIN_KEY in client code
-```
-
-Machine-readable references:
-
-```text
-docs/api-schema.json
-docs/openapi.yaml
-AI-INTEGRATION.md
-GET /v1/schema
-```
-
-## Security
-
-The collector is public by default. Set `REQUIRE_PLATFORM_KEY=true` when per-platform authentication is required, then manage a platform key through the admin endpoint. Keep `ADMIN_KEY`, GitHub token and Telegram token in Worker Secrets.
-
-See `SECURITY.md` for details.
-
-## Limits and operations
-
-D1 currently documents a maximum of 100 columns per table, 100 bound parameters per query, and 2 MB maximum string/BLOB/table row size. This project intentionally keeps the standard event table at 96 columns and checks its schema before deployment.
-
-Official references:
-- Wrangler: https://developers.cloudflare.com/workers/wrangler/
-- Wrangler configuration: https://developers.cloudflare.com/workers/wrangler/configuration/
-- D1 commands: https://developers.cloudflare.com/d1/wrangler-commands/
-- D1 limits: https://developers.cloudflare.com/d1/platform/limits/
-- Worker secrets: https://developers.cloudflare.com/workers/configuration/secrets/
-- GitHub Pages: https://docs.github.com/en/pages
-
-## License
-
-MIT
+The existing D1 contract remains schema 9.0 with a 96-column `events` table. This v12.1 runtime improves the client, Telegram visitor notification and dashboard behavior without requiring a schema migration.

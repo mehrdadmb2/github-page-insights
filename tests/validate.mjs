@@ -100,11 +100,22 @@ for (const file of ['worker/index.js','docs/app.js','docs/analytics.js','docs/co
 }
 
 const packageJson = JSON.parse(await text('package.json'));
-if (packageJson.version !== '11.0.0') fail(`package version mismatch: ${packageJson.version}`);
+if (packageJson.version !== '12.1.0') fail(`package version mismatch: ${packageJson.version}`);
 if (packageJson.devDependencies?.wrangler !== '4.145.0') fail(`wrangler version mismatch: ${packageJson.devDependencies?.wrangler}`);
 ok('package.json contract');
 const worker = await text('worker/index.js');
 const schema = await text('db/schema-v9.sql');
+const analytics = await text('docs/analytics.js');
+const config = await text('docs/config.js');
+const dashboard = await text('docs/index.html');
+if (!analytics.includes('const trackPageLeave = advanced && C.trackPageLeave === true;')) fail('Basic pageleave is not Advanced-only');
+if (!analytics.includes('const trackClicks = advanced && C.trackClicks === true;')) fail('Basic click tracking is not disabled by default');
+if (!analytics.includes('const trackScroll = advanced && C.trackScroll === true;')) fail('Basic scroll tracking is not disabled by default');
+if (!analytics.includes('const periodicQueueFlush = advanced && C.periodicQueueFlush === true;')) fail('Basic periodic queue flushing is not disabled');
+if (!analytics.includes('const storageKey = `uei_v121_${platformId}`;')) fail('legacy v12 queue/storage namespace is still active');
+if (!config.includes('advanced: false')) fail('dashboard SDK is not Basic by default');
+if (!dashboard.includes('id=\"visitorSnapshot\"')) fail('Basic visitor snapshot UI is missing');
+ok('Basic mode request policy is one-per-page-load with rich visitor context');
 const apiSchema = JSON.parse(await text('docs/api-schema.json'));
 const eventColumns = parseQuotedArray(worker,'EVENT_COLUMNS');
 const platformColumns = parseQuotedArray(worker,'PLATFORM_COLUMNS');
@@ -165,8 +176,32 @@ ok('health endpoint is reachable in runtime mock');
 const r5 = await mod.default.fetch(new Request('https://worker.example/v1/platforms/%E0%A4%A'),env,{});
 if (r5.status!==400) fail(`malformed encoded platform path expected 400 got ${r5.status}`);
 ok('malformed URL encoding returns 400 instead of crashing');
+const r6 = await mod.default.fetch(new Request('https://worker.example/v1/overview?days=7&lite=1'),env,{});
+if (r6.status !== 200) fail(`lite overview unexpected status ${r6.status}`);
+const b6 = await r6.json();
+if (b6.advanced !== false || !Array.isArray(b6.recentEvents)) fail('lite overview contract mismatch');
+ok('lite overview endpoint is available for low-cost dashboards');
+
+const r7 = await mod.default.fetch(new Request('https://worker.example/v1/health?quick=1'),env,{});
+if (r7.status !== 200) fail(`quick health unexpected status ${r7.status}`);
+const b7 = await r7.json();
+if (b7.checks?.database?.schemaVerified !== false) fail('quick health did not use quick database check');
+ok('quick health endpoint avoids full schema/count scan');
+const r8 = await mod.default.fetch(new Request('https://worker.example/v1/overview?days=7'),env,{});
+if (r8.status !== 200) fail(`advanced overview unexpected status ${r8.status}`);
+const b8 = await r8.json();
+if (b8.advanced !== true || !Array.isArray(b8.eventTypes) || !Array.isArray(b8.sources) || !Array.isArray(b8.statuses)) fail('advanced overview contract mismatch');
+ok('advanced overview includes full analytics aggregates');
+
+const r9 = await mod.default.fetch(new Request('https://worker.example/v1/platforms/test-site?days=7&lite=1'),env,{});
+if (r9.status !== 200) fail(`platform lite unexpected status ${r9.status}`);
+const b9 = await r9.json();
+if (!Array.isArray(b9.recentEvents)) fail('platform lite contract mismatch');
+ok('platform lite endpoint is available');
+
+
 
 if (!apiSchema || typeof apiSchema !== 'object') fail('api schema missing');
 ok('API schema JSON loaded');
 
-console.log(`\nVALIDATION COMPLETE — worker=11.0.0, schema=9.0, events=${eventColumns.length}, runtime smoke tests=PASS`);
+console.log(`\nVALIDATION COMPLETE — worker=12.1.0, schema=9.0, events=${eventColumns.length}, runtime smoke tests=PASS`);

@@ -11,7 +11,7 @@
     "GITHUB_BRANCH": "main",
     "GITHUB_ARCHIVE_ENABLED": "true",
     "REQUIRE_PLATFORM_KEY": "false",
-    "TELEGRAM_ENABLED": "false",
+    "TELEGRAM_ENABLED": "true",
     "TELEGRAM_NOTIFY_MODE": "visitor",
     "DEBUG": "false"
   },
