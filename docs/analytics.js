@@ -1,4 +1,4 @@
-/* Universal Event Insights Browser SDK v12.1.0 */
+/* Universal Event Insights Browser SDK v11.1.0 — Basic-first, low-frequency collector */
 (function () {
   "use strict";
 
@@ -8,9 +8,9 @@
   const C = window.PAGE_INSIGHTS_CONFIG || {};
   const worker = String(C.workerUrl || "").replace(/\/+$/, "");
   const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || "";
-  const configValue = (...values) => values.find((v) => v !== undefined && v !== null && String(v).trim() !== "") || "";
+  const value = (...xs) => xs.find((x) => x !== undefined && x !== null && String(x).trim() !== "") || "";
 
-  const platformId = String(configValue(
+  const platformId = String(value(
     C.platformId,
     meta("page-insights-platform-id"),
     meta("page-insights-site-id"),
@@ -19,7 +19,7 @@
     "web"
   )).trim();
 
-  const platformName = String(configValue(
+  const platformName = String(value(
     C.platformName,
     meta("page-insights-platform-name"),
     meta("page-insights-site-name"),
@@ -27,14 +27,14 @@
     platformId
   )).trim();
 
-  const platformType = String(configValue(
+  const platformType = String(value(
     C.platformType,
     meta("page-insights-platform-type"),
     meta("uei-platform-type"),
     "web"
   )).trim();
 
-  const environment = String(configValue(
+  const environment = String(value(
     C.environment,
     meta("page-insights-environment"),
     "production"
@@ -42,106 +42,73 @@
 
   if (!worker || !platformId) return;
 
-  const storageKey = `uei_v121_${platformId}`;
-  const queueKey = `${storageKey}_queue`;
+  const storageKey = `uei_v111_${platformId}`;
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const advanced = C.advanced === true || C.advancedTelemetry === true;
-  // Basic mode = one browser -> Worker request per page load, with the visitor snapshot
-  // attached to that request. No heartbeat, polling, click, scroll, or visibility traffic.
-  const trackPageLeave = advanced && C.trackPageLeave === true;
-  const trackClicks = advanced && C.trackClicks === true;
-  const trackScroll = advanced && C.trackScroll === true;
-  const trackVisibility = advanced && C.trackVisibility === true;
-  const heartbeat = advanced && C.heartbeat === true;
-  const periodicQueueFlush = advanced && C.periodicQueueFlush === true;
-
-  let pageStart = Date.now();
-  let maxScroll = 0;
-  let clicks = 0;
-  let outboundClicks = 0;
-  let lastScrollSent = 0;
-  let pageLeft = false;
-  let flushBusy = false;
+  const pageStart = Date.now();
 
   function uuid() {
-    try {
-      return crypto.randomUUID();
-    } catch {
+    try { return crypto.randomUUID(); } catch {
       return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
     }
   }
 
-  function safeStorage(kind) {
-    try {
-      return kind === "session" ? sessionStorage : localStorage;
-    } catch {
-      return null;
-    }
+  function storage(kind) {
+    try { return kind === "session" ? sessionStorage : localStorage; } catch { return null; }
   }
 
-  function getOrCreate(kind, name) {
-    const store = safeStorage(kind);
+  function getOrCreate(kind, key) {
+    const store = storage(kind);
     if (!store) return uuid();
     try {
-      const existing = store.getItem(`${storageKey}_${name}`);
-      if (existing) return existing;
-      const value = uuid();
-      store.setItem(`${storageKey}_${name}`, value);
-      return value;
-    } catch {
-      return uuid();
-    }
+      const full = `${storageKey}_${key}`;
+      const old = store.getItem(full);
+      if (old) return old;
+      const id = uuid();
+      store.setItem(full, id);
+      return id;
+    } catch { return uuid(); }
   }
 
   const visitorId = getOrCreate("local", "visitor");
 
-  function getSession() {
-    const store = safeStorage("session");
+  function sessionId() {
+    const store = storage("session");
+    const timeout = Math.max(5 * 60 * 1000, Number(C.sessionTimeoutMs || 30 * 60 * 1000));
+    const now = Date.now();
     if (!store) return uuid();
     try {
-      const savedId = store.getItem(`${storageKey}_session`);
-      const savedAt = Number(store.getItem(`${storageKey}_session_at`) || 0);
-      const now = Date.now();
-      if (savedId && Number.isFinite(savedAt) && now - savedAt < Number(C.sessionTimeoutMs || 1800000)) {
+      const id = store.getItem(`${storageKey}_session`);
+      const at = Number(store.getItem(`${storageKey}_session_at`) || 0);
+      if (id && now - at < timeout) {
         store.setItem(`${storageKey}_session_at`, String(now));
-        return savedId;
+        return id;
       }
-      const value = uuid();
-      store.setItem(`${storageKey}_session`, value);
+      const next = uuid();
+      store.setItem(`${storageKey}_session`, next);
       store.setItem(`${storageKey}_session_at`, String(now));
-      return value;
-    } catch {
-      return uuid();
-    }
+      return next;
+    } catch { return uuid(); }
   }
 
-  const sessionId = getSession();
+  const currentSessionId = sessionId();
   const userId = C.userId || null;
   const anonymousId = C.anonymousId || null;
-  const platformIp = C.platformIp || meta("page-insights-platform-ip") || null;
 
-  const screenInfo = {
-    width: window.screen?.width || null,
-    height: window.screen?.height || null,
-    devicePixelRatio: window.devicePixelRatio || 1,
-    colorDepth: window.screen?.colorDepth || 24
-  };
-
-  function clientHints() {
-    try {
-      const u = navigator.userAgentData;
-      return u ? {
-        brands: Array.isArray(u.brands) ? u.brands.map(x => ({ brand: x.brand, version: x.version })) : [],
-        mobile: Boolean(u.mobile),
-        platform: u.platform || null
-      } : null;
-    } catch {
-      return null;
-    }
+  function screenInfo() {
+    return {
+      width: window.screen?.width ?? null,
+      height: window.screen?.height ?? null,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      colorDepth: window.screen?.colorDepth ?? null,
+      orientation: window.screen?.orientation?.type || null
+    };
   }
 
-  function viewport() {
-    return { width: window.innerWidth || null, height: window.innerHeight || null };
+  function viewportInfo() {
+    return {
+      width: window.innerWidth ?? null,
+      height: window.innerHeight ?? null
+    };
   }
 
   function connectionInfo() {
@@ -154,40 +121,30 @@
     };
   }
 
-  function page() {
+  function clientHints() {
+    try {
+      const u = navigator.userAgentData;
+      if (!u) return null;
+      return {
+        mobile: Boolean(u.mobile),
+        platform: u.platform || null,
+        brands: Array.isArray(u.brands) ? u.brands.slice(0, 8).map(x => ({ brand: x.brand, version: x.version })) : []
+      };
+    } catch { return null; }
+  }
+
+  function pageInfo() {
     return {
       url: location.href,
       path: location.pathname,
       queryString: location.search.slice(1),
-      title: document.title,
-      referrer: document.referrer || null
+      title: document.title || null,
+      referrer: document.referrer || null,
+      referrerHost: (() => { try { return document.referrer ? new URL(document.referrer).hostname : null; } catch { return null; } })()
     };
   }
 
-  function getQueue() {
-    try {
-      const value = JSON.parse(localStorage.getItem(queueKey) || "[]");
-      return Array.isArray(value) ? value.slice(-25) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  function saveQueue(queue) {
-    try {
-      localStorage.setItem(queueKey, JSON.stringify(queue.slice(-25)));
-    } catch {
-      /* storage may be unavailable */
-    }
-  }
-
-  function enqueue(body) {
-    const queue = getQueue();
-    queue.push(body);
-    saveQueue(queue);
-  }
-
-  function bodyFor(eventType, data, metadata) {
+  function buildEvent() {
     return {
       platformId,
       platformName,
@@ -196,168 +153,104 @@
       platformUrl: C.platformUrl || location.origin,
       platformDomain: location.hostname,
       appVersion: C.appVersion || null,
-      platformIp,
       source: "browser",
       sdkName: "universal-event-insights-browser",
-      sdkVersion: "12.1.0",
-      eventType,
+      sdkVersion: "11.1.0",
+      eventType: "pageview",
       eventId: uuid(),
       timestamp: new Date().toISOString(),
-      identity: { visitorId, sessionId, userId, anonymousId },
-      page: page(),
-      screen: screenInfo,
-      viewport: viewport(),
+      identity: {
+        visitorId,
+        sessionId: currentSessionId,
+        userId,
+        anonymousId
+      },
+      page: pageInfo(),
+      language: navigator.language || null,
+      timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch { return null; } })(),
+      screen: screenInfo(),
+      viewport: viewportInfo(),
       connection: connectionInfo(),
       clientHints: clientHints(),
-      collection: { mode: advanced ? "advanced" : "basic", requestPolicy: advanced ? "configurable" : "one-per-page-load" },
+      userAgent: navigator.userAgent || null,
       durationMs: Math.max(0, Date.now() - pageStart),
-      maxScroll,
-      clicks,
-      outboundClicks,
-      data: data || {},
-      metadata: metadata || {}
+      maxScroll: 0,
+      clicks: 0,
+      outboundClicks: 0,
+      data: {
+        collectionMode: "basic",
+        requestPolicy: "one-pageview-per-load"
+      },
+      metadata: {
+        pageHost: location.hostname,
+        pageProtocol: location.protocol
+      }
     };
   }
 
-  async function post(body, keepalive) {
-    const timeout = Number(C.requestTimeoutMs || 12000);
+  function updateStatus(state, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent("uei:telemetry", { detail: { state, detail: detail || null } }));
+    } catch { /* CustomEvent may be unavailable in very old browsers. */ }
+  }
+
+  async function sendOnce(body) {
+    const timeoutMs = Math.max(4000, Number(C.requestTimeoutMs || 10000));
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${worker}/v1/events`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // text/plain is a CORS-safelisted content type, so a cross-origin GitHub Pages
+        // page can send the JSON body without triggering an extra OPTIONS preflight.
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
         body: JSON.stringify(body),
-        keepalive: Boolean(keepalive),
+        keepalive: true,
         cache: "no-store",
         signal: controller.signal
       });
-      return response.ok;
-    } catch {
+      let payload = null;
+      try { payload = await response.json(); } catch { /* response body may be empty */ }
+      if (!response.ok) {
+        updateStatus("failed", payload?.error || `HTTP ${response.status}`);
+        return false;
+      }
+      updateStatus("sent", payload || null);
+      return true;
+    } catch (error) {
+      updateStatus("failed", String(error?.message || error || "network error"));
       return false;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  async function flushQueue() {
-    if (flushBusy) return;
-    const queue = getQueue();
-    if (!queue.length) return;
-    flushBusy = true;
-    try {
-      const remaining = [];
-      for (const item of queue) {
-        const ok = await post(item, false);
-        if (!ok) remaining.push(item);
-      }
-      saveQueue(remaining);
-    } finally {
-      flushBusy = false;
-    }
+  // Advanced telemetry is opt-in and intentionally does not affect Basic collection.
+  const advanced = C.advanced === true || C.advancedTelemetry === true;
+  if (advanced) {
+    // Optional advanced hooks are exposed through a small explicit API instead of
+    // automatically attaching high-frequency listeners.
+    window.PAGE_INSIGHTS_TRACK = function (eventType, data, metadata) {
+      const cleanType = String(eventType || "custom").slice(0, 80);
+      const event = buildEvent();
+      event.eventType = cleanType;
+      event.eventId = uuid();
+      event.data = data && typeof data === "object" ? data : {};
+      event.metadata = metadata && typeof metadata === "object" ? metadata : {};
+      return sendOnce(event);
+    };
   }
 
-  function recentPageviewDuplicate() {
-    const store = safeStorage("session");
-    if (!store) return false;
-    const signature = `${location.pathname}|${location.search}`;
-    try {
-      const prev = JSON.parse(store.getItem(`${storageKey}_last_pageview`) || "null");
-      const same = prev && prev.signature === signature && Date.now() - Number(prev.at || 0) < 3000;
-      if (!same) store.setItem(`${storageKey}_last_pageview`, JSON.stringify({ signature, at: Date.now() }));
-      return Boolean(same);
-    } catch {
-      return false;
-    }
-  }
+  // Prevent accidental duplicate executions caused by both sync/defer loaders or SPA
+  // re-initialization in the same tab within a very small window.
+  const tab = storage("session");
+  try {
+    const markerKey = `${storageKey}_last_pageview_at`;
+    const last = Number(tab?.getItem(markerKey) || 0);
+    if (Date.now() - last < 1500) return;
+    tab?.setItem(markerKey, String(Date.now()));
+  } catch { /* continue */ }
 
-  function send(eventType, data, metadata, keepalive) {
-    const body = bodyFor(eventType, data, metadata);
-    if (keepalive && navigator.sendBeacon) {
-      try {
-        const blob = new Blob([JSON.stringify(body)], { type: "text/plain;charset=UTF-8" });
-        if (navigator.sendBeacon(`${worker}/v1/events`, blob)) return;
-      } catch {
-        /* fallback to fetch */
-      }
-    }
-    post(body, Boolean(keepalive)).then((ok) => {
-      if (!ok) enqueue(body);
-    });
-  }
-
-  function updateSessionTouch() {
-    const store = safeStorage("session");
-    try { store?.setItem(`${storageKey}_session_at`, String(Date.now())); } catch { /* no-op */ }
-  }
-
-  function updateScroll() {
-    if (!trackScroll) return;
-    const root = document.documentElement;
-    const body = document.body || {};
-    const top = window.scrollY || root.scrollTop || 0;
-    const total = Math.max(root.scrollHeight, body.scrollHeight || 0, root.offsetHeight || 0, body.offsetHeight || 0) - window.innerHeight;
-    maxScroll = total > 0 ? Math.min(100, Math.round((top / total) * 100)) : 100;
-    if (maxScroll - lastScrollSent >= 10) {
-      lastScrollSent = maxScroll;
-      send("scroll", { depth: maxScroll }, {});
-    }
-    updateSessionTouch();
-  }
-
-  if (trackScroll) window.addEventListener("scroll", updateScroll, { passive: true });
-
-  if (trackClicks) {
-    window.addEventListener("click", (event) => {
-      clicks += 1;
-      updateSessionTouch();
-      const target = {
-        tag: event.target?.tagName || null,
-        id: event.target?.id || null,
-        className: typeof event.target?.className === "string" ? event.target.className.slice(0, 160) : null
-      };
-      send("click", { target }, {}, false);
-      const anchor = event.target?.closest?.("a");
-      if (anchor?.href && anchor.origin !== location.origin) {
-        outboundClicks += 1;
-        send("outbound_click", { href: anchor.href, text: (anchor.textContent || "").trim().slice(0, 180) }, {}, false);
-      }
-    }, { passive: true });
-  }
-
-  if (trackVisibility) {
-    document.addEventListener("visibilitychange", () => {
-      updateSessionTouch();
-      send("visibility", { state: document.visibilityState }, {});
-    });
-  }
-
-  function leaveOnce(reason) {
-    if (pageLeft) return;
-    pageLeft = true;
-    send("pageleave", {}, { reason }, true);
-  }
-
-  if (trackPageLeave) {
-    window.addEventListener("pagehide", () => leaveOnce("pagehide"));
-    window.addEventListener("beforeunload", () => leaveOnce("beforeunload"));
-  }
-  window.addEventListener("online", flushQueue);
-  if (periodicQueueFlush) {
-    setInterval(flushQueue, Math.max(60000, Number(C.queueFlushMs || 120000)));
-  }
-
-  if (connection?.addEventListener && advanced) {
-    connection.addEventListener("change", () => send("connection_change", { connection: connectionInfo() }, {}));
-  }
-
-  if (heartbeat) {
-    setInterval(() => {
-      if (!pageLeft && !document.hidden) send("heartbeat", {}, {});
-    }, Math.max(60000, Number(C.heartbeatMs || 120000)));
-  }
-
-  if (!recentPageviewDuplicate()) send("pageview", {}, {});
-  updateSessionTouch();
-  flushQueue();
+  updateStatus("sending");
+  void sendOnce(buildEvent());
 })();
