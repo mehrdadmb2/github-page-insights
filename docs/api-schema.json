@@ -3,7 +3,7 @@
   "title": "Universal Event Insights API",
   "description": "Machine-readable contract for the Universal Event Insights v1 API. Clients and AI agents should discover the live contract from /v1/schema before integration.",
   "apiVersion": "v1",
-  "workerVersion": "12.1.0",
+  "workerVersion": "12.0.0",
   "databaseSchema": "9.0",
   "baseUrl": "https://github-page-insights-worker.game-developer-mb.workers.dev",
   "deployment": {

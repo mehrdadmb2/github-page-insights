@@ -1,4 +1,4 @@
-/* Universal Event Insights Browser SDK v11.1.0 — Basic-first, low-frequency collector */
+/* Universal Event Insights Browser SDK v12.1.1 — Basic-first, low-frequency collector */
 (function () {
   "use strict";
 
@@ -42,7 +42,7 @@
 
   if (!worker || !platformId) return;
 
-  const storageKey = `uei_v111_${platformId}`;
+  const storageKey = `uei_v121_${platformId}`;
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
   const pageStart = Date.now();
 
@@ -155,7 +155,7 @@
       appVersion: C.appVersion || null,
       source: "browser",
       sdkName: "universal-event-insights-browser",
-      sdkVersion: "11.1.0",
+      sdkVersion: "12.1.1",
       eventType: "pageview",
       eventId: uuid(),
       timestamp: new Date().toISOString(),
